@@ -1,12 +1,18 @@
 version: 1
 sources:
   - key: example-feed
+    kind: feed
+    base_url: https://careers.example.com/
     enabled: false
     acquisition_method: official_feed
     policy_status: pending_review
+    policy_reviewed_at: null
     terms_reviewed_at: null
     robots_reviewed_at: null
     next_review_at: null
     credential_custodian: null
     requests_per_minute: 0
     notes: "Template only. Record review evidence before enabling any source."
+    config:
+      feed_url: https://careers.example.com/jobs.xml
+      company_name: Example Company

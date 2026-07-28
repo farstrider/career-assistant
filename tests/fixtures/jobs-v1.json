@@ -1,0 +1,20 @@
+[
+  {
+    "external_id": "smoke-1",
+    "url": "https://jobs.example.com/jobs/1?utm_source=fixture",
+    "company_name": "Example 株式会社",
+    "title": "Platform Engineering Manager",
+    "location": "Tokyo",
+    "remote_policy": "hybrid",
+    "description": "Lead the platform engineering team."
+  },
+  {
+    "external_id": "smoke-2",
+    "url": "https://jobs.example.com/jobs/2",
+    "company_name": "Example 株式会社",
+    "title": "Security Engineering Manager",
+    "location": "Tokyo",
+    "remote_policy": "onsite",
+    "description": "Lead the product security team."
+  }
+]

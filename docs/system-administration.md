@@ -70,6 +70,26 @@ FastAPI authenticates case-folded local usernames and Argon2id passwords. Browse
 
 Every source starts disabled. Copy `config/source-policy.example.yaml` only after terms, robots, authorization, credential-custodian, ownership, and rate-budget review. Never put credentials in source policy.
 
+Apply a reviewed source policy from the host:
+
+```sh
+docker compose run --rm -v "$PWD/config:/policies:ro" api \
+  career sources apply-policy /policies/source-policy.yaml
+```
+
+The initial external connector accepts bounded RSS or Atom over HTTP(S). It rejects private, link-local, loopback, metadata, credential-bearing, and unsafe redirect destinations; XML entities and oversized or structurally invalid feeds fail as schema drift. A drifted source is disabled automatically. Review the safe error and raw capture, update the approved connector configuration or parser fixture, renew the policy if needed, and explicitly enable the source before retrying it from **Operations**.
+
+For a reviewed manual source, import a JSON list through the same normalization and deduplication pipeline:
+
+```sh
+docker compose run --rm -v "$PWD/imports:/imports:ro" api \
+  career sources import manual-source /imports/jobs.json
+```
+
+Each item requires `external_id`, `url`, `company_name`, `title`, and `description`; optional Milestone 1 fields include `location`, `remote_policy`, `employment_type`, `posting_date`, `skills`, `responsibilities`, and `benefits`. The file is limited to 1,000 items. Reusing the same file is idempotent, while changed normalized content appends a job version.
+
+Source runs retain immutable captures and classified errors. A failed run never records its candidate cursor; retrying safely reprocesses already captured items. Raw bodies and secret configuration are not exposed by the browser API.
+
 ## Migrations and recovery
 
 Apply migrations independently:
@@ -78,10 +98,10 @@ Apply migrations independently:
 docker compose run --rm migrate alembic upgrade head
 ```
 
-The `0002_local_authentication` revision creates accounts, profiles, and sessions. Downgrading below it deletes those records. Back up PostgreSQL and verify the target before running:
+The `0002_local_authentication` revision creates accounts, profiles, and sessions. `0003_jobs_and_sources` adds shared acquisition/job history and profile-scoped feedback. Downgrading below `0003` deletes that history; back up PostgreSQL and verify the target before running:
 
 ```sh
-docker compose run --rm migrate alembic downgrade 0001_baseline
+docker compose run --rm migrate alembic downgrade 0002_local_authentication
 docker compose run --rm migrate alembic upgrade head
 ```
 

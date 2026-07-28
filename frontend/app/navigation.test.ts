@@ -6,6 +6,7 @@ describe("role-aware navigation", () => {
   it("does not expose administrator navigation to a member", () => {
     expect(navigationForRoles(["member"]).map(({ label }) => label)).toEqual([
       "Overview",
+      "Opportunities",
       "Password",
     ]);
   });

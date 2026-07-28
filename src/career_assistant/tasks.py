@@ -1,8 +1,10 @@
 import asyncio
+import uuid
 
 from celery import Celery  # type: ignore[import-untyped]
 
 from career_assistant.auth import cleanup_sessions
+from career_assistant.ingestion import execute_run
 from career_assistant.services import Services
 from career_assistant.settings import load_settings
 
@@ -41,3 +43,20 @@ def cleanup_auth_sessions() -> int:
             await services.close()
 
     return asyncio.run(run())
+
+
+@celery.task(name="career_assistant.scan_source")  # type: ignore[untyped-decorator]
+def scan_source(source_id: str, run_id: str, operation_id: str) -> None:
+    async def run() -> None:
+        services = Services.create(settings)
+        try:
+            await execute_run(
+                services,
+                uuid.UUID(source_id),
+                uuid.UUID(run_id),
+                uuid.UUID(operation_id),
+            )
+        finally:
+            await services.close()
+
+    asyncio.run(run())

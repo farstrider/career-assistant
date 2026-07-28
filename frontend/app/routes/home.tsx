@@ -8,7 +8,7 @@ export default function Home() {
   return (
     <>
       <h1>Overview</h1>
-      <p>The foundation is ready. Opportunities arrive in Milestone 1.</p>
+      <p>Review newly acquired opportunities and record what happens next.</p>
     </>
   );
 }

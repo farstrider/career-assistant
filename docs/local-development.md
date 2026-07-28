@@ -20,7 +20,7 @@ corepack npm@10.9.4 ci
 cd ..
 ```
 
-The default tests use no external provider, source content, or private career data.
+The default tests use no external provider, live source, or private career data. Frozen RSS/Atom and manual-import fixtures cover normalization, deduplication, schema drift, SSRF, rate limits, cursor safety, and job-version history.
 
 ## Build and generated contracts
 
@@ -66,6 +66,8 @@ make compose-smoke
 ```
 
 The smoke test expects a fresh database because it verifies first-administrator bootstrap. It exercises forced password change, authenticated readiness, account creation and reset, disablement, session revocation, final-administrator protection, logout, and SPA delivery over HTTPS.
+
+It also applies a test-only approved manual-source policy, proves repeat imports are idempotent, appends one changed job version, exercises job/source reads, and verifies feedback is isolated between two profiles. Live feed canaries remain opt-in and require a current source-policy review.
 
 The smoke stack contains known test credentials. Stop it and delete its test-only volumes after verification:
 

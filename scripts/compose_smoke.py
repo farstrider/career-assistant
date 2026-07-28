@@ -129,8 +129,8 @@ _, member_session = request(
     "POST",
     {
         "current_password": member_password,
-        "new_password": "member-smoke-password-2026",
-    },  # pragma: allowlist secret
+        "new_password": replacement_password,
+    },
     member_session["csrf_token"],
 )
 assert request(f"/api/v1/jobs/{job_id}/feedback")[1] == []

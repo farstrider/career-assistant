@@ -1,0 +1,116 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.8rem;
+}
+label {
+  display: grid;
+  gap: 0.35rem;
+}
+input:not([type="checkbox"]) {
+  min-height: 2.75rem;
+  padding: 0.5rem;
+}
+a {
+  color: var(--color-accent);
+}
+a:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 3px;
+}
+.shell {
+  display: grid;
+  grid-template: auto 1fr / 14rem minmax(0, var(--measure));
+  min-height: 100vh;
+}
+header {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  padding: calc(2 * var(--space));
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+}
+.panel {
+  display: grid;
+  gap: calc(2 * var(--space));
+  width: min(100%, 34rem);
+  padding: calc(3 * var(--space));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.inline,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+}
+.notice {
+  display: grid;
+  gap: var(--space);
+  margin-block: calc(2 * var(--space));
+  padding: calc(2 * var(--space));
+  border: 2px solid var(--color-accent);
+}
+table {
+  width: 100%;
+  margin-top: calc(3 * var(--space));
+  border-collapse: collapse;
+}
+th,
+td {
+  padding: var(--space);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+.brand {
+  color: var(--color-text);
+  font-weight: 700;
+  text-decoration: none;
+}
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+  padding: calc(3 * var(--space));
+  border-right: 1px solid var(--color-border);
+}
+main {
+  padding: calc(4 * var(--space));
+}
+.loading {
+  min-height: 100vh;
+}
+@media (max-width: 40rem) {
+  .shell {
+    display: block;
+  }
+  nav {
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}

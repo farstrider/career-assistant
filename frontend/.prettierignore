@@ -1,0 +1,5 @@
+.react-router/
+build/
+node_modules/
+app/api/schema.d.ts
+package-lock.json

@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.1"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --frozen
+      - run: corepack npm@10.9.4 ci
+        working-directory: frontend
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest
+      - run: corepack npm@10.9.4 run format
+        working-directory: frontend
+      - run: corepack npm@10.9.4 run typecheck
+        working-directory: frontend
+      - run: corepack npm@10.9.4 test
+        working-directory: frontend
+      - run: make generate
+      - run: git diff --exit-code -- openapi.json frontend/app/api/schema.d.ts
+      - run: uv run pip-audit
+      - run: corepack npm@10.9.4 audit --audit-level=high
+        working-directory: frontend
+      - run: uv run python scripts/check_secrets.py
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure private-LAN test TLS
+        run: |
+          address="$(hostname -I | awk '{print $1}')"
+          mkdir -p .ci-tls
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout .ci-tls/tls.key -out .ci-tls/tls.crt -subj "/CN=$address" \
+            -addext "subjectAltName=IP:$address"
+          echo "CAREER_APP_BIND_ADDRESS=$address" >> "$GITHUB_ENV"
+          echo "CAREER_APP_BASE_URL=https://$address:8443" >> "$GITHUB_ENV"
+          echo "CAREER_TLS_CERT_FILE=${{ github.workspace }}/.ci-tls/tls.crt" >> "$GITHUB_ENV"
+          echo "CAREER_TLS_PRIVATE_KEY_FILE=${{ github.workspace }}/.ci-tls/tls.key" >> "$GITHUB_ENV"
+      - run: docker compose up --build --wait
+      - run: ./scripts/compose_smoke.sh
+      - run: docker compose run --rm migrate alembic downgrade base
+      - run: docker compose run --rm migrate alembic upgrade head
+      - run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL career-assistant-api:local
+      - run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL career-assistant-proxy:local
+      - if: always()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v

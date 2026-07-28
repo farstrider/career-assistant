@@ -1,0 +1,141 @@
+x-backend: &backend
+  image: career-assistant-api:local
+  environment: &backend-environment
+    CAREER_APP_ENVIRONMENT: development
+    CAREER_APP_BASE_URL: ${CAREER_APP_BASE_URL:?set the external HTTPS URL}
+    CAREER_APP_BIND_ADDRESS: ${CAREER_APP_BIND_ADDRESS:?set a private LAN address}
+    CAREER_APP_TIMEZONE: ${CAREER_APP_TIMEZONE:-Asia/Tokyo}
+    CAREER_DATABASE_URL: postgresql+psycopg://career:local-development-only@postgres/career # pragma: allowlist secret
+    CAREER_REDIS_URL: redis://redis:6379/0
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg17-bookworm@sha256:40b404964359299eefdd5f8518facf1886c562848cf4de13b6eaf91cb70c2b87
+    environment:
+      POSTGRES_DB: career
+      POSTGRES_USER: career
+      POSTGRES_PASSWORD: local-development-only # pragma: allowlist secret
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U career -d career"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.0.3-alpine@sha256:25c0ae32c6c2301798579f5944af53729766a18eff5660bbef196fc2e6214a9c
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    <<: *backend
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *backend
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live',timeout=2).read()
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    <<: *backend
+    command: ["celery", "-A", "career_assistant.tasks:celery", "worker", "--loglevel=INFO", "--concurrency=1"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  beat:
+    <<: *backend
+    command: ["celery", "-A", "career_assistant.tasks:celery", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  tls-init:
+    image: career-assistant-proxy:local
+    build: frontend
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        install -m 0444 /input/tls.crt /output/tls.crt &&
+        install -m 0444 /input/tls.key /output/tls.key
+    volumes:
+      - "${CAREER_TLS_CERT_FILE:?set the TLS certificate path}:/input/tls.crt:ro"
+      - "${CAREER_TLS_PRIVATE_KEY_FILE:?set the TLS private key path}:/input/tls.key:ro"
+      - tls-material:/output
+    read_only: true
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_READ_SEARCH
+
+  proxy:
+    image: career-assistant-proxy:local
+    build: frontend
+    ports:
+      - name: https
+        target: 8443
+        published: "${CAREER_APP_PORT:-8443}"
+        host_ip: ${CAREER_APP_BIND_ADDRESS:?set a private LAN address}
+        protocol: tcp
+    volumes:
+      - tls-material:/run/career-tls:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      tls-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://127.0.0.1:8443/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  postgres-data:
+  tls-material:

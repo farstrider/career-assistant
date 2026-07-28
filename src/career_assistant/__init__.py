@@ -1,0 +1,1 @@
+"""Career Assistant modular monolith."""

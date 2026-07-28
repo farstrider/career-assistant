@@ -1,0 +1,12 @@
+version: 1
+sources:
+  - key: example-feed
+    enabled: false
+    acquisition_method: official_feed
+    policy_status: pending_review
+    terms_reviewed_at: null
+    robots_reviewed_at: null
+    next_review_at: null
+    credential_custodian: null
+    requests_per_minute: 0
+    notes: "Template only. Record review evidence before enabling any source."

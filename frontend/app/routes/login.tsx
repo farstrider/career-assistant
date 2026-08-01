@@ -1,11 +1,8 @@
 import { useState, type FormEvent } from "react";
 
-import { useNavigate } from "react-router";
-
 import { apiRequest, type Session } from "../api/session";
 
 export default function Login() {
-  const navigate = useNavigate();
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -23,7 +20,9 @@ export default function Login() {
           password: data.get("password"),
         }),
       });
-      navigate(session.must_change_password ? "/account/password" : "/");
+      window.location.assign(
+        session.must_change_password ? "/account/password" : "/",
+      );
     } catch {
       setError(
         "The username or password was not accepted. Try again later if attempts are limited.",

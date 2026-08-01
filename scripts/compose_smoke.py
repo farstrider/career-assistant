@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.cookiejar
 import json
 import os
+import re
 import ssl
 import urllib.error
 import urllib.request
@@ -135,4 +136,10 @@ _, member_session = request(
 )
 assert request(f"/api/v1/jobs/{job_id}/feedback")[1] == []
 request("/api/v1/auth/logout", "POST", csrf=member_session["csrf_token"])
-assert b"Loading secure session" in opener.open(base_url + "/", timeout=10).read()
+spa = opener.open(base_url + "/", timeout=10)
+page = spa.read()
+nonces = re.findall(rb'<script[^>]+nonce="([^"]+)"', page)
+assert b"Loading secure session" in page
+assert nonces and len(nonces) == page.count(b"<script")
+assert len(set(nonces)) == 1
+assert f"'nonce-{nonces[0].decode()}'" in spa.headers["Content-Security-Policy"]

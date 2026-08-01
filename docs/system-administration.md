@@ -8,8 +8,8 @@ Install Docker with Compose v2 and obtain a certificate and private key valid fo
 
 Copy `.env.example` to the untracked `.env` and set:
 
-- `CAREER_APP_BIND_ADDRESS` to an explicit RFC1918 IPv4 or ULA IPv6 address;
-- `CAREER_APP_BASE_URL` to the matching HTTPS origin;
+- `CAREER_APP_BIND_ADDRESS` to a loopback address for host-only access, or an explicit RFC1918 IPv4 or ULA IPv6 address for LAN access;
+- `CAREER_APP_BASE_URL` to the HTTPS origin members will use; its DNS name may differ from the bind address but must resolve to it from intended clients;
 - `CAREER_TLS_CERT_FILE` and `CAREER_TLS_PRIVATE_KEY_FILE` to readable absolute paths;
 - `CAREER_APP_TIMEZONE` to the installation’s IANA timezone.
 
@@ -77,7 +77,33 @@ docker compose run --rm -v "$PWD/config:/policies:ro" api \
   career sources apply-policy /policies/source-policy.yaml
 ```
 
-The initial external connector accepts bounded RSS or Atom over HTTP(S). It rejects private, link-local, loopback, metadata, credential-bearing, and unsafe redirect destinations; XML entities and oversized or structurally invalid feeds fail as schema drift. A drifted source is disabled automatically. Review the safe error and raw capture, update the approved connector configuration or parser fixture, renew the policy if needed, and explicitly enable the source before retrying it from **Operations**.
+The initial external connectors accept bounded RSS/Atom over HTTP(S) and authorized LinkedIn job-alert email from a dedicated Gmail label. Feed acquisition rejects private, link-local, loopback, metadata, credential-bearing, and unsafe redirect destinations. Email acquisition uses verified IMAP TLS, exact sender and link-host allow-lists, bounded message batches, and read-only UID cursors. It never marks, moves, or deletes mail, and it strips LinkedIn tracking parameters from normalized job URLs. XML entities, malformed MIME, attachments, oversized content, and structurally invalid source data fail safely. Schema drift disables only the affected source. Review the safe error and raw capture, update the approved connector configuration or parser fixture, renew the policy if needed, and explicitly enable the source before retrying it from **Operations**.
+
+### Gmail alert connector
+
+Use a dedicated Gmail account and label containing direct LinkedIn Job Alerts messages. Do not forward a personal inbox: the connector validates the real `From` address, ignores unrelated mail, and retains the source message ID plus only `Date`, `From`, and `Subject`. Raw capture contains sanitized extracted card data rather than the RFC 822 envelope; recipient and transport headers, scripts, remote images, footer content, and tracking tokens are discarded. SMTP delivery is not part of this connector.
+
+1. Enable two-step verification on the dedicated Google account and create an app password.
+2. Store only that app password in a host file readable by the deployment operator:
+
+```sh
+install -m 0600 /dev/null "$HOME/.config/career-assistant/gmail-app-password"
+read -rsp 'Gmail app password: ' mail_credential
+printf '%s\n' "$mail_credential" > "$HOME/.config/career-assistant/gmail-app-password"
+unset mail_credential
+chmod 0600 "$HOME/.config/career-assistant/gmail-app-password"
+```
+
+3. Set `GMAIL_USERNAME`, `GMAIL_MAILBOX`, and `GMAIL_APP_PASSWORD_FILE` in the untracked `.env`. Start the worker with the mail overlay:
+
+```sh
+docker compose -f compose.yaml -f compose.mail.yaml up -d worker
+```
+
+4. Copy the disabled `linkedin-alerts` entry from `config/source-policy.example.yaml`, record the authorization/custodian/review evidence, apply it, and enable it only after the Gmail label and allow-lists are verified.
+5. Trigger one run from **Operations**. Confirm the run cursor and item counts, then verify that job URLs contain only `https://www.linkedin.com/jobs/view/{id}/` and that unrelated label content was not captured.
+
+Authentication failures use `SOURCE_AUTHENTICATION_FAILED`; malformed or attached content uses `SOURCE_CONTENT_REJECTED`; an unrecognized LinkedIn layout uses `SOURCE_SCHEMA_DRIFT` and disables the source. Rotate the app password by replacing the mounted file and restarting only the worker. Live Gmail canaries are manual because they access an authorized mailbox.
 
 For a reviewed manual source, import a JSON list through the same normalization and deduplication pipeline:
 

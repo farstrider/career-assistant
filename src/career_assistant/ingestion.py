@@ -6,6 +6,8 @@ import uuid
 from datetime import UTC, datetime
 
 from career_assistant.connectors import (
+    AlertEmailConnector,
+    AuthenticationError,
     Connector,
     ConnectorError,
     FeedConnector,
@@ -37,14 +39,42 @@ def policy_allows(source: Source, now: datetime | None = None) -> None:
         raise PolicyError("Source is disabled or lacks a current approved policy")
 
 
-def connector_for(source: Source) -> Connector:
-    if source.kind != "feed":
-        raise SchemaDriftError("No connector is registered for this source kind")
-    url = source.config.get("feed_url")
-    company = source.config.get("company_name")
-    if not isinstance(url, str) or not isinstance(company, str) or not company.strip():
-        raise SchemaDriftError("Feed source configuration is incomplete")
-    return FeedConnector(url, company)
+def connector_for(source: Source, services: Services) -> Connector:
+    if source.kind == "feed":
+        url = source.config.get("feed_url")
+        company = source.config.get("company_name")
+        if not isinstance(url, str) or not isinstance(company, str) or not company.strip():
+            raise SchemaDriftError("Feed source configuration is incomplete")
+        return FeedConnector(url, company)
+    if source.kind == "alert_email":
+        mail = services.settings.mail
+        if mail is None:
+            raise AuthenticationError("Gmail IMAP settings are not configured")
+        parser = source.config.get("parser")
+        senders = source.config.get("sender_allowlist")
+        hosts = source.config.get("link_host_allowlist")
+        if (
+            parser != "linkedin_jobs"
+            or not isinstance(senders, list)
+            or not senders
+            or not all(isinstance(value, str) and value for value in senders)
+            or not isinstance(hosts, list)
+            or not hosts
+            or not all(isinstance(value, str) and value for value in hosts)
+        ):
+            raise SchemaDriftError("Alert-email source configuration is incomplete")
+        return AlertEmailConnector(
+            mail.imap_host,
+            mail.imap_port,
+            mail.username,
+            mail.app_password(),
+            mail.mailbox,
+            senders,
+            hosts,
+            timeout=mail.timeout_seconds,
+            batch_size=mail.batch_size,
+        )
+    raise SchemaDriftError("No connector is registered for this source kind")
 
 
 async def execute_run(
@@ -62,7 +92,7 @@ async def execute_run(
             return
         try:
             policy_allows(source)
-            active_connector = connector or connector_for(source)
+            active_connector = connector or connector_for(source, services)
             cursor = await current_cursor(database, source.id)
             run.cursor_before = cursor
             run.status = "running"
@@ -71,7 +101,7 @@ async def execute_run(
             await database.commit()
 
             while True:
-                if isinstance(active_connector, FeedConnector):
+                if isinstance(active_connector, (FeedConnector, AlertEmailConnector)):
                     allowed = await services.redis.set(
                         f"source:rate:{source.id}",
                         "1",

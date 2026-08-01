@@ -675,7 +675,7 @@ export interface components {
         /** SourcePatch */
         SourcePatch: {
             /** Acquisition Method */
-            acquisition_method?: ("official_feed" | "manual") | null;
+            acquisition_method?: ("official_feed" | "manual" | "authorized_alert_email") | null;
             /** Company Name */
             company_name?: string | null;
             /** Credential Custodian */
@@ -684,8 +684,12 @@ export interface components {
             enabled?: boolean | null;
             /** Feed Url */
             feed_url?: string | null;
+            /** Link Host Allowlist */
+            link_host_allowlist?: string[] | null;
             /** Next Review At */
             next_review_at?: string | null;
+            /** Parser */
+            parser?: "linkedin_jobs" | null;
             /** Policy Notes */
             policy_notes?: string | null;
             /** Policy Reviewed At */
@@ -696,6 +700,8 @@ export interface components {
             requests_per_minute?: number | null;
             /** Robots Reviewed At */
             robots_reviewed_at?: string | null;
+            /** Sender Allowlist */
+            sender_allowlist?: string[] | null;
             /** Terms Reviewed At */
             terms_reviewed_at?: string | null;
         };

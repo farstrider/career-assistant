@@ -20,7 +20,7 @@ corepack npm@10.9.4 ci
 cd ..
 ```
 
-The default tests use no external provider, live source, or private career data. Frozen RSS/Atom and manual-import fixtures cover normalization, deduplication, schema drift, SSRF, rate limits, cursor safety, and job-version history.
+The default tests use no external provider, live source, or private career data. Frozen RSS/Atom, sanitized LinkedIn alert, and manual-import fixtures cover normalization, deduplication, schema drift, SSRF, rate limits, MIME safety, IMAP cursor safety, and job-version history. Gmail tests use a fake IMAP client; live mailbox access is always opt-in.
 
 ## Build and generated contracts
 
@@ -59,7 +59,7 @@ The CI Compose job additionally scans the built API and proxy images for high- a
 
 ## Full-stack smoke test
 
-Configure a private address and test certificate as described in [System administration](system-administration.md), then run:
+Configure a loopback or private address and test certificate as described in [System administration](system-administration.md), then run:
 
 ```sh
 make compose-smoke

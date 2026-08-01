@@ -19,6 +19,7 @@ class Services:
     database: AsyncEngine
     sessions: async_sessionmaker[AsyncSession]
     redis: Redis
+    settings: Settings
 
     @classmethod
     def create(cls, settings: Settings) -> Services:
@@ -32,9 +33,10 @@ class Services:
             },
         )
         return cls(
-            engine,
-            async_sessionmaker(engine, expire_on_commit=False),
-            Redis.from_url(redis_url, decode_responses=True),
+            database=engine,
+            sessions=async_sessionmaker(engine, expire_on_commit=False),
+            redis=Redis.from_url(redis_url, decode_responses=True),
+            settings=settings,
         )
 
     async def ready(self) -> None:

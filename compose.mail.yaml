@@ -1,0 +1,12 @@
+services:
+  worker:
+    environment:
+      CAREER_MAIL_IMAP_HOST: ${GMAIL_IMAP_HOST:-imap.gmail.com}
+      CAREER_MAIL_IMAP_PORT: ${GMAIL_IMAP_PORT:-993}
+      CAREER_MAIL_USERNAME: ${GMAIL_USERNAME:?set the dedicated Gmail address}
+      CAREER_MAIL_MAILBOX: ${GMAIL_MAILBOX:-Career Alerts}
+      CAREER_MAIL_APP_PASSWORD_FILE: /run/secrets/gmail_app_password
+      CAREER_MAIL_TIMEOUT_SECONDS: ${GMAIL_TIMEOUT_SECONDS:-20}
+      CAREER_MAIL_BATCH_SIZE: ${GMAIL_BATCH_SIZE:-50}
+    volumes:
+      - "${GMAIL_APP_PASSWORD_FILE:?set the Gmail app-password file}:/run/secrets/gmail_app_password:ro"

@@ -55,6 +55,19 @@ export default function SourceDetail() {
           policy_notes: data.get("policy_notes"),
           feed_url: data.get("feed_url") || undefined,
           company_name: data.get("company_name") || undefined,
+          parser: data.get("parser") || undefined,
+          sender_allowlist: data.get("sender_allowlist")
+            ? String(data.get("sender_allowlist"))
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean)
+            : undefined,
+          link_host_allowlist: data.get("link_host_allowlist")
+            ? String(data.get("link_host_allowlist"))
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean)
+            : undefined,
         }),
       });
       setSource(updated);
@@ -168,6 +181,35 @@ export default function SourceDetail() {
                 defaultValue={String(source.safe_config.company_name ?? "")}
               />
             </label>
+          </>
+        )}
+        {source.kind === "alert_email" && (
+          <>
+            <input name="parser" type="hidden" value="linkedin_jobs" />
+            <label>
+              Allowed senders
+              <input
+                name="sender_allowlist"
+                type="text"
+                defaultValue={String(source.safe_config.sender_allowlist ?? "")}
+                placeholder="jobalerts-noreply@linkedin.com"
+              />
+            </label>
+            <label>
+              Allowed job-link hosts
+              <input
+                name="link_host_allowlist"
+                type="text"
+                defaultValue={String(
+                  source.safe_config.link_host_allowlist ?? "",
+                )}
+                placeholder="www.linkedin.com"
+              />
+            </label>
+            <p>
+              Gmail credentials and the mailbox label are worker-only settings
+              and are never available here.
+            </p>
           </>
         )}
         <button>Save source</button>

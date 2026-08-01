@@ -800,7 +800,8 @@
               {
                 "enum": [
                   "official_feed",
-                  "manual"
+                  "manual",
+                  "authorized_alert_email"
                 ],
                 "type": "string"
               },
@@ -856,6 +857,22 @@
             ],
             "title": "Feed Url"
           },
+          "link_host_allowlist": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Host Allowlist"
+          },
           "next_review_at": {
             "anyOf": [
               {
@@ -867,6 +884,18 @@
               }
             ],
             "title": "Next Review At"
+          },
+          "parser": {
+            "anyOf": [
+              {
+                "const": "linkedin_jobs",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parser"
           },
           "policy_notes": {
             "anyOf": [
@@ -932,6 +961,22 @@
               }
             ],
             "title": "Robots Reviewed At"
+          },
+          "sender_allowlist": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender Allowlist"
           },
           "terms_reviewed_at": {
             "anyOf": [

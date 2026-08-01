@@ -1,0 +1,33 @@
+From: LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>
+To: alerts@example.invalid
+Date: Fri, 24 Jul 2026 12:52:00 +0900
+Message-ID: <linkedin-alert-fixture@example.invalid>
+Subject: Your job alert for security engineering
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="fixture-boundary"
+
+--fixture-boundary
+Content-Type: text/plain; charset="utf-8"
+
+Six jobs matched your alert.
+--fixture-boundary
+Content-Type: text/html; charset="utf-8"
+
+<!doctype html>
+<html><body>
+<a href="https://www.linkedin.com/comm/jobs/view/100001/?trackingId=private-one"><img src="https://images.example.invalid/1.png" alt=""></a>
+<a href="https://www.linkedin.com/comm/jobs/view/100001/?trackingId=private-one">Senior Application Security Engineer</a>
+<p>RevenueCat · Japan (Remote)</p><p>$230K-$230K / year</p>
+<a href="https://www.linkedin.com/comm/jobs/view/100002/?trackingId=private-two">Security Researcher</a>
+<p>McAfee · Tokyo (Remote)</p><p>Actively recruiting</p>
+<a href="https://www.linkedin.com/comm/jobs/view/100003/?trackingId=private-three">情報セキュリティ・サイバーセキュリティ監査コンサルタント</a>
+<p>RGP Asia Pacific · Tokyo (Remote)</p><p>Actively recruiting</p>
+<a href="https://www.linkedin.com/comm/jobs/view/100004/?trackingId=private-four">Security Platform Engineer</a>
+<p>Example Systems · Yokohama</p>
+<a href="https://www.linkedin.com/comm/jobs/view/100005/?trackingId=private-five">1309_Security Engineer</a>
+<p>TIER IV · Tokyo</p><p>2 company alumni</p>
+<a href="https://www.linkedin.com/comm/jobs/view/100006/?trackingId=private-six">Platform Security Architect</a>
+<p>PlayStation · Japan</p>
+<script>fetch('https://remote.example.invalid/private')</script>
+</body></html>
+--fixture-boundary--

@@ -3,7 +3,7 @@ x-backend: &backend
   environment: &backend-environment
     CAREER_APP_ENVIRONMENT: development
     CAREER_APP_BASE_URL: ${CAREER_APP_BASE_URL:?set the external HTTPS URL}
-    CAREER_APP_BIND_ADDRESS: ${CAREER_APP_BIND_ADDRESS:?set a private LAN address}
+    CAREER_APP_BIND_ADDRESS: ${CAREER_APP_BIND_ADDRESS:?set a loopback or private address}
     CAREER_APP_TIMEZONE: ${CAREER_APP_TIMEZONE:-Asia/Tokyo}
     CAREER_DATABASE_URL: postgresql+psycopg://career:local-development-only@postgres/career # pragma: allowlist secret
     CAREER_REDIS_URL: redis://redis:6379/0
@@ -116,7 +116,7 @@ services:
       - name: https
         target: 8443
         published: "${CAREER_APP_PORT:-8443}"
-        host_ip: ${CAREER_APP_BIND_ADDRESS:?set a private LAN address}
+        host_ip: ${CAREER_APP_BIND_ADDRESS:?set a loopback or private address}
         protocol: tcp
     volumes:
       - tls-material:/run/career-tls:ro

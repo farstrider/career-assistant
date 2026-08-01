@@ -139,7 +139,7 @@ class SourceResponse(BaseModel):
 
 class SourcePatch(BaseModel):
     enabled: bool | None = None
-    acquisition_method: Literal["official_feed", "manual"] | None = None
+    acquisition_method: Literal["official_feed", "manual", "authorized_alert_email"] | None = None
     policy_status: Literal["pending_review", "approved", "rejected"] | None = None
     policy_reviewed_at: datetime | None = None
     terms_reviewed_at: datetime | None = None
@@ -150,6 +150,16 @@ class SourcePatch(BaseModel):
     requests_per_minute: int | None = Field(default=None, ge=0, le=600)
     feed_url: str | None = None
     company_name: str | None = Field(default=None, max_length=300)
+    parser: Literal["linkedin_jobs"] | None = None
+    sender_allowlist: list[str] | None = Field(default=None, min_length=1, max_length=20)
+    link_host_allowlist: list[str] | None = Field(default=None, min_length=1, max_length=20)
+
+    @field_validator("sender_allowlist", "link_host_allowlist")
+    @classmethod
+    def nonempty_allowlist(cls, values: list[str] | None) -> list[str] | None:
+        if values is not None and any(not value.strip() for value in values):
+            raise ValueError("allow-list entries must not be empty")
+        return values
 
 
 class OperationResponse(BaseModel):
@@ -396,7 +406,18 @@ async def _source_response(database: Database, source: Source) -> SourceResponse
         policy_notes=source.policy_notes,
         credential_custodian=source.credential_custodian,
         requests_per_minute=source.requests_per_minute,
-        safe_config=source.config,
+        safe_config={
+            key: value
+            for key, value in source.config.items()
+            if key
+            in {
+                "feed_url",
+                "company_name",
+                "parser",
+                "sender_allowlist",
+                "link_host_allowlist",
+            }
+        },
         version=source.version,
         updated_at=source.updated_at,
         latest_run=_run(latest) if latest else None,
@@ -462,6 +483,14 @@ async def update_source(
         config["feed_url"] = values.feed_url
     if values.company_name is not None:
         config["company_name"] = values.company_name.strip()
+    if values.parser is not None:
+        config["parser"] = values.parser
+    if values.sender_allowlist is not None:
+        config["sender_allowlist"] = [value.strip().casefold() for value in values.sender_allowlist]
+    if values.link_host_allowlist is not None:
+        config["link_host_allowlist"] = [
+            value.strip().casefold() for value in values.link_host_allowlist
+        ]
     source.config = config
     source.version += 1
     if source.enabled:

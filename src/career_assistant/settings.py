@@ -10,6 +10,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_PRIVATE_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+)
+
 
 class AppSettings(BaseModel):
     environment: Literal["development", "test", "production"] = "production"
@@ -30,10 +35,8 @@ class AppSettings(BaseModel):
             address = ipaddress.ip_address(self.bind_address)
         except ValueError as error:
             raise ValueError("app.bind_address must be an IP address") from error
-        if not address.is_private or address.is_loopback:
-            raise ValueError("app.bind_address must be a private non-loopback address")
-        if parsed.hostname != self.bind_address:
-            raise ValueError("app.base_url host must match app.bind_address")
+        if not address.is_loopback and not any(address in network for network in _PRIVATE_NETWORKS):
+            raise ValueError("app.bind_address must be a loopback or private address")
         try:
             ZoneInfo(self.timezone)
         except ZoneInfoNotFoundError as error:
@@ -73,6 +76,29 @@ class AuthSettings(BaseModel):
     throttle_window_seconds: int = Field(default=300, ge=1)
 
 
+class MailSettings(BaseModel):
+    imap_host: str = "imap.gmail.com"
+    imap_port: int = Field(default=993, ge=1, le=65535)
+    username: str = Field(min_length=1)
+    mailbox: str = Field(default="Career Alerts", min_length=1)
+    app_password_file: Path
+    timeout_seconds: int = Field(default=20, ge=1, le=120)
+    batch_size: int = Field(default=50, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_password_file(self) -> Self:
+        try:
+            password = self.app_password_file.read_text(encoding="utf-8").strip()
+        except OSError as error:
+            raise ValueError("cannot read Gmail app-password file") from error
+        if not password:
+            raise ValueError("Gmail app-password file is empty")
+        return self
+
+    def app_password(self) -> str:
+        return self.app_password_file.read_text(encoding="utf-8").strip()
+
+
 def _secret(value: SecretStr | None, path: Path | None, label: str) -> SecretStr:
     if value and path:
         raise ValueError(f"set either {label} or its file, not both")
@@ -100,6 +126,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings
     redis: RedisSettings
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    mail: MailSettings | None = None
 
 
 _SETTING_GROUPS: dict[str, type[BaseModel]] = {
@@ -107,6 +134,7 @@ _SETTING_GROUPS: dict[str, type[BaseModel]] = {
     "database": DatabaseSettings,
     "redis": RedisSettings,
     "auth": AuthSettings,
+    "mail": MailSettings,
 }
 
 _KNOWN_ENVIRONMENT = {

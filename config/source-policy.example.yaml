@@ -16,3 +16,22 @@ sources:
     config:
       feed_url: https://careers.example.com/jobs.xml
       company_name: Example Company
+  - key: linkedin-alerts
+    kind: alert_email
+    base_url: https://www.linkedin.com/jobs/
+    enabled: false
+    acquisition_method: authorized_alert_email
+    policy_status: pending_review
+    policy_reviewed_at: null
+    terms_reviewed_at: null
+    robots_reviewed_at: null
+    next_review_at: null
+    credential_custodian: null
+    requests_per_minute: 0
+    notes: "Template only. Use a dedicated Gmail label and review authorization before enabling."
+    config:
+      parser: linkedin_jobs
+      sender_allowlist:
+        - jobalerts-noreply@linkedin.com
+      link_host_allowlist:
+        - www.linkedin.com

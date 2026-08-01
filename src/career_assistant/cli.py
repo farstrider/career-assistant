@@ -110,10 +110,15 @@ async def apply_source_policy(filename: Path) -> None:
                 if not all(isinstance(value, str) and value for value in (key, kind, method)):
                     raise SystemExit("source key, kind, and acquisition_method are required")
                 assert isinstance(key, str) and isinstance(kind, str) and isinstance(method, str)
-                if kind not in {"feed", "manual"}:
+                if kind not in {"feed", "manual", "alert_email"}:
                     raise SystemExit(f"unsupported source kind: {kind}")
                 config = entry.get("config", {})
-                if not isinstance(config, dict) or set(config) - {"feed_url", "company_name"}:
+                allowed_config = {
+                    "feed": {"feed_url", "company_name"},
+                    "manual": set(),
+                    "alert_email": {"parser", "sender_allowlist", "link_host_allowlist"},
+                }[kind]
+                if not isinstance(config, dict) or set(config) - allowed_config:
                     raise SystemExit("source config contains unsupported fields")
                 source = await database.scalar(select(Source).where(Source.key == key))
                 if source is None:

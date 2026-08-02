@@ -7,7 +7,7 @@ scan = subprocess.run(
         "scan",
         "--all-files",
         "--exclude-files",
-        r"(^\.(cache|git|idea|mypy_cache|pytest_cache|ruff_cache|uv-cache|venv)/|^frontend/(build|node_modules)/|^uv\.lock$|^frontend/package-lock\.json$|^openapi\.json$)",
+        r"((^|/)\.(cache|git|idea|mypy_cache|pytest_cache|ruff_cache|uv-cache|venv)/|^frontend/(build|node_modules)/|^uv\.lock$|^frontend/package-lock\.json$|^openapi\.json$)",
     ],
     check=True,
     capture_output=True,

@@ -338,5 +338,8 @@ def downgrade() -> None:
         "artifact",
     ):
         op.drop_table(table)
+    op.execute(sa.text("DROP POLICY IF EXISTS operation_profile_isolation ON operation"))
+    op.execute(sa.text("ALTER TABLE operation NO FORCE ROW LEVEL SECURITY"))
+    op.execute(sa.text("ALTER TABLE operation DISABLE ROW LEVEL SECURITY"))
     op.drop_index("ix_operation_profile_id", table_name="operation")
     op.drop_column("operation", "profile_id")

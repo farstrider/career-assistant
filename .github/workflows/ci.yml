@@ -59,6 +59,10 @@ jobs:
           echo "CAREER_APP_BASE_URL=https://$address:8443" >> "$GITHUB_ENV"
           echo "CAREER_TLS_CERT_FILE=${{ github.workspace }}/.ci-tls/tls.crt" >> "$GITHUB_ENV"
           echo "CAREER_TLS_PRIVATE_KEY_FILE=${{ github.workspace }}/.ci-tls/tls.key" >> "$GITHUB_ENV"
+          key_file="${{ github.workspace }}/.ci-artifact-key"
+          python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())' > "$key_file"
+          chmod 644 "$key_file"
+          echo "CAREER_SECURITY_ARTIFACT_KEY_FILE=$key_file" >> "$GITHUB_ENV"
       - run: docker compose up --build --wait
       - run: ./scripts/compose_smoke.sh
       - run: docker compose run --rm migrate alembic downgrade base

@@ -7,6 +7,8 @@ describe("role-aware navigation", () => {
     expect(navigationForRoles(["member"]).map(({ label }) => label)).toEqual([
       "Overview",
       "Opportunities",
+      "Knowledge",
+      "Imports",
       "Password",
     ]);
   });

@@ -12,8 +12,19 @@ Copy `.env.example` to the untracked `.env` and set:
 - `CAREER_APP_BASE_URL` to the HTTPS origin members will use; its DNS name may differ from the bind address but must resolve to it from intended clients;
 - `CAREER_TLS_CERT_FILE` and `CAREER_TLS_PRIVATE_KEY_FILE` to readable absolute paths;
 - `CAREER_APP_TIMEZONE` to the installation’s IANA timezone.
+- `CAREER_SECURITY_ARTIFACT_KEY_FILE` to a mode-0600 Fernet key file used to
+  encrypt imported CVs and evidence excerpts.
 
 Keep `.env`, TLS private keys, database credentials, temporary passwords, and session material untracked. Direct deployments may use `CAREER_DATABASE_URL_FILE` and `CAREER_REDIS_URL_FILE`. Unknown `CAREER_*` application settings fail startup.
+
+Create the artifact key once and back it up with the deployment secrets. Losing
+it makes stored artifact content unreadable; the graph’s non-sensitive history
+remains in PostgreSQL but affected imports must be reprocessed.
+
+```sh
+umask 077
+python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' > /path/to/artifact-fernet.key
+```
 
 The key is mounted read-only into a one-shot initializer, copied into an ephemeral volume mounted only by Nginx, and is not available to FastAPI, workers, or browser code. Nginx remains unprivileged.
 
@@ -124,7 +135,7 @@ Apply migrations independently:
 docker compose run --rm migrate alembic upgrade head
 ```
 
-The `0002_local_authentication` revision creates accounts, profiles, and sessions. `0003_jobs_and_sources` adds shared acquisition/job history and profile-scoped feedback. Downgrading below `0003` deletes that history; back up PostgreSQL and verify the target before running:
+The `0002_local_authentication` revision creates accounts, profiles, and sessions. `0003_jobs_and_sources` adds shared acquisition/job history and profile-scoped feedback. `0004_knowledge_graph` adds encrypted profile artifacts, evidence-backed graph data, graph history, proposals, and forced row-level security. Downgrading below `0004` removes Milestone 2 graph data; back up PostgreSQL and verify the target before running:
 
 ```sh
 docker compose run --rm migrate alembic downgrade 0002_local_authentication

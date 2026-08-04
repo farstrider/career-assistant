@@ -112,6 +112,17 @@ def _secret(value: SecretStr | None, path: Path | None, label: str) -> SecretStr
     return value
 
 
+class SecuritySettings(BaseModel):
+    artifact_key: SecretStr | None = None
+    artifact_key_file: Path | None = None
+
+    @model_validator(mode="after")
+    def validate_key_sources(self) -> Self:
+        if self.artifact_key and self.artifact_key_file:
+            raise ValueError("set either artifact encryption key or its file, not both")
+        return self
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="CAREER_",
@@ -126,6 +137,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings
     redis: RedisSettings
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
     mail: MailSettings | None = None
 
 
@@ -134,6 +146,7 @@ _SETTING_GROUPS: dict[str, type[BaseModel]] = {
     "database": DatabaseSettings,
     "redis": RedisSettings,
     "auth": AuthSettings,
+    "security": SecuritySettings,
     "mail": MailSettings,
 }
 

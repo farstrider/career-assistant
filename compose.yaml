@@ -7,12 +7,15 @@ x-backend: &backend
     CAREER_APP_TIMEZONE: ${CAREER_APP_TIMEZONE:-Asia/Tokyo}
     CAREER_DATABASE_URL: postgresql+psycopg://career:local-development-only@postgres/career # pragma: allowlist secret
     CAREER_REDIS_URL: redis://redis:6379/0
+    CAREER_SECURITY_ARTIFACT_KEY_FILE: /run/secrets/artifact_key
   depends_on:
     postgres:
       condition: service_healthy
     redis:
       condition: service_healthy
   restart: unless-stopped
+  volumes:
+    - "${CAREER_SECURITY_ARTIFACT_KEY_FILE:?set the artifact encryption key file}:/run/secrets/artifact_key:ro"
   security_opt:
     - no-new-privileges:true
   cap_drop:

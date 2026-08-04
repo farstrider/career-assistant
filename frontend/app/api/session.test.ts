@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadSession, type Session } from "./session";
+import { apiRequest, loadSession, type Session } from "./session";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -27,5 +27,21 @@ describe("session loading", () => {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
     });
+  });
+
+  it("does not label multipart artifact uploads as JSON", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetch);
+    const body = new FormData();
+    body.append("file", new Blob(["cv"], { type: "text/plain" }), "cv.txt");
+
+    await apiRequest("/artifacts", {
+      method: "POST",
+      headers: { "Idempotency-Key": "upload-1" },
+      body,
+    });
+
+    const request = fetch.mock.calls[0][1] as RequestInit;
+    expect(new Headers(request.headers).has("Content-Type")).toBe(false);
   });
 });

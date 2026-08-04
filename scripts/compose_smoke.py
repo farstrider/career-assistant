@@ -5,8 +5,10 @@ import json
 import os
 import re
 import ssl
+import time
 import urllib.error
 import urllib.request
+import uuid
 
 base_url = os.environ["CAREER_APP_BASE_URL"]
 origin = base_url
@@ -38,6 +40,34 @@ def request(
             headers["X-CSRF-Token"] = csrf
     response = opener.open(
         urllib.request.Request(base_url + path, data=data, headers=headers, method=method),
+        timeout=10,
+    )
+    return response.status, json.load(response)
+
+
+def upload_cv(csrf: str) -> tuple[int, dict[str, object]]:
+    boundary = "----career-assistant-smoke-" + uuid.uuid4().hex
+    content = b"Skills\nPython, PostgreSQL\nExperience\nIgnored prose\n"
+    body = (
+        (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="file"; filename="smoke-cv.txt"\r\n'
+            "Content-Type: text/plain\r\n\r\n"
+        ).encode()
+        + content
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Origin": origin,
+        "X-CSRF-Token": csrf,
+        "Idempotency-Key": "smoke-cv-import",
+    }
+    response = opener.open(
+        urllib.request.Request(
+            base_url + "/api/v1/artifacts", data=body, headers=headers, method="POST"
+        ),
         timeout=10,
     )
     return response.status, json.load(response)
@@ -134,8 +164,52 @@ _, member_session = request(
     },
     member_session["csrf_token"],
 )
+status_code, artifact = upload_cv(member_session["csrf_token"])
+assert status_code == 202
+operation_url = artifact["operation_url"]
+assert isinstance(operation_url, str)
+for _ in range(20):
+    _, operation = request(operation_url)
+    if operation["state"] in {"succeeded", "failed"}:
+        break
+    time.sleep(0.5)
+assert operation["state"] == "succeeded"
+_, proposals = request("/api/v1/knowledge/proposals")
+assert proposals and proposals[0]["state"] == "pending"
+_, member_entities = request("/api/v1/knowledge/entities")
+assert member_entities["items"]
+member_entity_id = member_entities["items"][0]["id"]
+_, approved = request(
+    f"/api/v1/knowledge/proposals/{proposals[0]['id']}/decision",
+    "POST",
+    {"decision": "approve", "note": "Smoke approval"},
+    member_session["csrf_token"],
+    {"If-Match": "0"},
+)
+assert approved["state"] == "approved"
+_, versions = request("/api/v1/knowledge/versions")
+assert versions[0]["version"] == 1
+request(
+    "/api/v1/knowledge/rollback",
+    "POST",
+    {"target_version": 0, "confirm": True, "reason": "Smoke rollback"},
+    member_session["csrf_token"],
+    {"If-Match": "1"},
+)
 assert request(f"/api/v1/jobs/{job_id}/feedback")[1] == []
 request("/api/v1/auth/logout", "POST", csrf=member_session["csrf_token"])
+_, admin_session = request(
+    "/api/v1/auth/login",
+    "POST",
+    {"username": "smoke-admin", "password": replacement_password},
+)
+try:
+    request(f"/api/v1/knowledge/entities/{member_entity_id}")
+except urllib.error.HTTPError as error:
+    assert error.code == 404
+else:
+    raise AssertionError("administrator read another profile's knowledge")
+request("/api/v1/auth/logout", "POST", csrf=admin_session["csrf_token"])
 spa = opener.open(base_url + "/", timeout=10)
 page = spa.read()
 nonces = re.findall(rb'<script[^>]+nonce="([^"]+)"', page)

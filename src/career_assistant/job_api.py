@@ -577,7 +577,7 @@ async def list_source_runs(source_id: uuid.UUID, _: Admin, database: Database) -
 
 @router.get("/operations/{operation_id}", response_model=OperationResponse, tags=["operations"])
 async def get_operation(
-    operation_id: uuid.UUID, current: Admin, database: Database, response: Response
+    operation_id: uuid.UUID, current: Current, database: Database, response: Response
 ) -> OperationResponse:
     item = await database.get(Operation, operation_id)
     if item is None or item.requested_by_user_id != current.user.id:

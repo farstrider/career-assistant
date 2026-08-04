@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import RequestResponseEndpoint
 
+from career_assistant.artifact_api import router as artifact_router
 from career_assistant.auth import (
     Admin,
     AdminMutation,
@@ -42,6 +43,7 @@ from career_assistant.auth import (
     temporary_password,
 )
 from career_assistant.job_api import router as job_router
+from career_assistant.knowledge_api import router as knowledge_router
 from career_assistant.logging import configure_logging
 from career_assistant.models import AppUser, Profile
 from career_assistant.services import Services
@@ -74,6 +76,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = app_settings
     app.include_router(job_router, prefix="/api/v1")
+    app.include_router(artifact_router, prefix="/api/v1")
+    app.include_router(knowledge_router, prefix="/api/v1")
 
     @app.exception_handler(HTTPException)
     async def http_problem(request: Request, error: HTTPException) -> JSONResponse:

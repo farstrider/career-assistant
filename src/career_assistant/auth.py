@@ -17,7 +17,7 @@ from fastapi import Cookie, Depends, Header, HTTPException, Request, Response, s
 from pwdlib import PasswordHash
 from pydantic import BaseModel, Field, field_validator
 from redis.exceptions import RedisError
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from career_assistant.models import AppUser, AuthSession, Profile
@@ -176,6 +176,13 @@ def require_origin(request: Request) -> None:
         raise problem(status.HTTP_403_FORBIDDEN, "INVALID_ORIGIN", "Request origin is not allowed")
 
 
+async def set_profile_context(database: AsyncSession, profile_id: uuid.UUID) -> None:
+    await database.execute(
+        text("SELECT set_config('career.profile_id', :profile_id, true)"),
+        {"profile_id": str(profile_id)},
+    )
+
+
 async def current_session(
     request: Request,
     database: Database,
@@ -227,6 +234,7 @@ async def current_session(
         session.absolute_expires_at,
     )
     await database.commit()
+    await set_profile_context(database, profile.id)
     return Authenticated(user=user, profile=profile, session=session)
 
 

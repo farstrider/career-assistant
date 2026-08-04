@@ -7,8 +7,11 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     LargeBinary,
     String,
@@ -68,6 +71,232 @@ class Profile(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class Artifact(Base):
+    __tablename__ = "artifact"
+    __table_args__ = (UniqueConstraint("profile_id", "content_hash"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32))
+    filename: Mapped[str] = mapped_column(String(255))
+    media_type: Mapped[str] = mapped_column(String(128))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    encrypted_content: Mapped[bytes] = mapped_column(LargeBinary)
+    classification: Mapped[str] = mapped_column(String(32))
+    processing_state: Mapped[str] = mapped_column(String(32), index=True)
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    erased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class KGEntity(Base):
+    __tablename__ = "kg_entity"
+    __table_args__ = (UniqueConstraint("profile_id", "id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), index=True
+    )
+    entity_type: Mapped[str] = mapped_column(String(32), index=True)
+    canonical_name: Mapped[str] = mapped_column(String(300))
+    normalized_name: Mapped[str] = mapped_column(String(300), index=True)
+    attributes: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class KGRelation(Base):
+    __tablename__ = "kg_relation"
+    __table_args__ = (
+        UniqueConstraint("profile_id", "id"),
+        ForeignKeyConstraint(
+            ["profile_id", "from_entity_id"], ["kg_entity.profile_id", "kg_entity.id"]
+        ),
+        ForeignKeyConstraint(
+            ["profile_id", "to_entity_id"], ["kg_entity.profile_id", "kg_entity.id"]
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), index=True
+    )
+    relation_type: Mapped[str] = mapped_column(String(32), index=True)
+    from_entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    to_entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    attributes: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class KGAssertion(Base):
+    __tablename__ = "kg_assertion"
+    __table_args__ = (
+        CheckConstraint("confidence >= 0 AND confidence <= 1"),
+        UniqueConstraint("profile_id", "id"),
+        ForeignKeyConstraint(
+            ["profile_id", "subject_entity_id"], ["kg_entity.profile_id", "kg_entity.id"]
+        ),
+        ForeignKeyConstraint(
+            ["profile_id", "relation_id"], ["kg_relation.profile_id", "kg_relation.id"]
+        ),
+        ForeignKeyConstraint(
+            ["profile_id", "supersedes_id"], ["kg_assertion.profile_id", "kg_assertion.id"]
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), index=True
+    )
+    subject_entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    relation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    predicate: Mapped[str] = mapped_column(String(64))
+    value: Mapped[dict[str, object]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    confidence: Mapped[float] = mapped_column(Float)
+    confidence_method: Mapped[str] = mapped_column(String(64))
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
+class Evidence(Base):
+    __tablename__ = "evidence"
+    __table_args__ = (UniqueConstraint("profile_id", "id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32))
+    source_uri: Mapped[str] = mapped_column(String(500))
+    title: Mapped[str] = mapped_column(String(300))
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    encrypted_excerpt: Mapped[bytes] = mapped_column(LargeBinary)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    metadata_: Mapped[dict[str, object]] = mapped_column("metadata", JSONB, default=dict)
+    locator: Mapped[str] = mapped_column(String(300))
+    artifact_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("artifact.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    raw_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("raw_source_document.id"), nullable=True
+    )
+
+
+class AssertionEvidence(Base):
+    __tablename__ = "assertion_evidence"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["profile_id", "assertion_id"], ["kg_assertion.profile_id", "kg_assertion.id"]
+        ),
+        ForeignKeyConstraint(["profile_id", "evidence_id"], ["evidence.profile_id", "evidence.id"]),
+        UniqueConstraint("profile_id", "assertion_id", "evidence_id", "locator"),
+    )
+
+    profile_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    assertion_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    evidence_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    support: Mapped[str] = mapped_column(String(16))
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+    locator: Mapped[str] = mapped_column(String(300), primary_key=True)
+
+
+class KnowledgeProposal(Base):
+    __tablename__ = "knowledge_proposal"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), index=True
+    )
+    proposed_assertion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("kg_assertion.id", ondelete="CASCADE"), index=True
+    )
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    base_graph_version: Mapped[int] = mapped_column(Integer)
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(String(2000))
+    replacement_assertion_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GraphVersion(Base):
+    __tablename__ = "graph_version"
+    __table_args__ = (UniqueConstraint("profile_id", "version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    actor_type: Mapped[str] = mapped_column(String(32))
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    reason: Mapped[str] = mapped_column(String(500))
+    correlation_id: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GraphChange(Base):
+    __tablename__ = "graph_change"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["profile_id", "graph_version"], ["graph_version.profile_id", "graph_version.version"]
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    graph_version: Mapped[int] = mapped_column(Integer)
+    object_type: Mapped[str] = mapped_column(String(32))
+    object_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    operation: Mapped[str] = mapped_column(String(32))
+    before: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    after: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+
+
+class OutboxEvent(Base):
+    __tablename__ = "outbox_event"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    topic: Mapped[str] = mapped_column(String(128))
+    aggregate_type: Mapped[str] = mapped_column(String(64))
+    aggregate_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    payload: Mapped[dict[str, object]] = mapped_column(JSONB)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_event"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    scope: Mapped[str] = mapped_column(String(32))
+    action: Mapped[str] = mapped_column(String(64))
+    target_type: Mapped[str] = mapped_column(String(64))
+    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    correlation_id: Mapped[str] = mapped_column(String(128))
+    metadata_: Mapped[dict[str, object]] = mapped_column("metadata", JSONB, default=dict)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class AuthSession(Base):
@@ -251,6 +480,9 @@ class Operation(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     requested_by_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), nullable=True, index=True
     )
     kind: Mapped[str] = mapped_column(String(64))
     state: Mapped[str] = mapped_column(String(32), index=True)

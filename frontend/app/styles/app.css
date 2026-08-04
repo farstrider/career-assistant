@@ -104,6 +104,15 @@ header {
   background: var(--color-surface);
   border-block: 1px solid var(--color-border);
 }
+.progress-status {
+  display: grid;
+  gap: var(--space);
+  margin-block: calc(2 * var(--space));
+}
+.progress-status progress {
+  width: 100%;
+  min-height: 1.25rem;
+}
 .opportunity-grid,
 .records {
   display: grid;
@@ -153,6 +162,12 @@ dd {
 }
 .timeline li {
   padding: var(--space) calc(2 * var(--space));
+}
+.graph-canvas {
+  min-height: 24rem;
+  margin-block: calc(3 * var(--space));
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 table {
   width: 100%;

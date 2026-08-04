@@ -18,7 +18,8 @@ export async function loadSession(): Promise<Session> {
 export async function apiRequest<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
-  if (init.body) headers.set("Content-Type", "application/json");
+  if (init.body && !(init.body instanceof FormData))
+    headers.set("Content-Type", "application/json");
   if (init.method && init.method !== "GET") {
     if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
   }

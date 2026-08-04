@@ -7,6 +7,7 @@ from career_assistant.api import create_app
 from career_assistant.settings import DatabaseSettings, RedisSettings, Settings
 
 settings = Settings(
+    _env_file=None,
     database=DatabaseSettings(url=SecretStr("postgresql+psycopg://openapi@localhost/openapi")),
     redis=RedisSettings(url=SecretStr("redis://localhost/0")),
 )

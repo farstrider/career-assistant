@@ -57,6 +57,20 @@ corepack npm@10.9.4 audit --audit-level=high
 
 The CI Compose job additionally scans the built API and proxy images for high- and critical-severity vulnerabilities.
 
+## Knowledge graph and artifact imports
+
+Milestone 2 supports UTF-8 text and extractable-text PDF CV imports. Create a
+local Fernet key and set `CAREER_SECURITY_ARTIFACT_KEY_FILE` in `.env`; the key
+is required to encrypt artifacts and evidence before they are stored. Scanned
+or password-protected PDFs are rejected safely. Imported facts remain pending
+proposals until an explicit member decision. The import page polls processing
+status and displays a 0–100% progress bar, ending with “Finished!” when the
+operation succeeds.
+
+The knowledge profile, bounded search/traversal, read-only graph, imports, and
+graph history are available from the member navigation. Profile data is scoped
+to the authenticated session; source and normalized job data remains shared.
+
 ## Full-stack smoke test
 
 Configure a loopback or private address and test certificate as described in [System administration](system-administration.md), then run:

@@ -118,6 +118,10 @@
             "title": "Processing State",
             "type": "string"
           },
+          "processing_version": {
+            "title": "Processing Version",
+            "type": "integer"
+          },
           "retention_until": {
             "anyOf": [
               {
@@ -148,6 +152,7 @@
           "content_hash",
           "classification",
           "processing_state",
+          "processing_version",
           "retention_until",
           "version",
           "created_at",
@@ -1229,6 +1234,18 @@
             "title": "Decision",
             "type": "string"
           },
+          "defer_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defer Until"
+          },
           "note": {
             "anyOf": [
               {
@@ -1269,6 +1286,34 @@
             "title": "Base Graph Version",
             "type": "integer"
           },
+          "current_graph_version": {
+            "title": "Current Graph Version",
+            "type": "integer"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
           "decision_note": {
             "anyOf": [
               {
@@ -1280,10 +1325,51 @@
             ],
             "title": "Decision Note"
           },
+          "defer_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defer Until"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceResponse"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "observation_evidence_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Evidence Count"
+          },
+          "observation_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation State"
           },
           "state": {
             "title": "State",
@@ -1295,7 +1381,14 @@
           "assertion",
           "state",
           "base_graph_version",
-          "decision_note"
+          "decision_note",
+          "current_graph_version",
+          "defer_until",
+          "decided_by",
+          "decided_at",
+          "evidence",
+          "observation_state",
+          "observation_evidence_count"
         ],
         "title": "ProposalResponse",
         "type": "object"
@@ -2807,6 +2900,92 @@
         ]
       }
     },
+    "/api/v1/artifacts/{artifact_id}/reprocess": {
+      "post": {
+        "operationId": "reprocess_artifact_api_v1_artifacts__artifact_id__reprocess_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "career_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Career Session"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reprocess Artifact",
+        "tags": [
+          "artifacts"
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "login_api_v1_auth_login_post",
@@ -4227,6 +4406,17 @@
             "required": true,
             "schema": {
               "title": "If-Match",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Idempotency-Key",
               "type": "string"
             }
           },

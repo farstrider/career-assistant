@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiRequest, loadSession, type Session } from "./session";
+import { ApiError, apiRequest, loadSession, type Session } from "./session";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -43,5 +43,26 @@ describe("session loading", () => {
 
     const request = fetch.mock.calls[0][1] as RequestInit;
     expect(new Headers(request.headers).has("Content-Type")).toBe(false);
+  });
+
+  it("keeps the problem status and code for conflict handling", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ code: "GRAPH_VERSION_MISMATCH", detail: "Reload" }),
+          {
+            status: 412,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      ),
+    );
+    await expect(
+      apiRequest("/knowledge/proposals/1/decision"),
+    ).rejects.toMatchObject({
+      status: 412,
+      code: "GRAPH_VERSION_MISMATCH",
+    } satisfies Partial<ApiError>);
   });
 });

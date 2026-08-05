@@ -45,14 +45,51 @@ def request(
     return response.status, json.load(response)
 
 
+def pdf_cv() -> bytes:
+    content = (
+        b"BT /F1 12 Tf 72 720 Td (Skills) Tj 0 -20 Td (Python, PostgreSQL) Tj "
+        b"0 -20 Td (Experience) Tj 0 -20 Td (Director of Engineering) Tj "
+        b"0 -20 Td (Education) Tj 0 -20 Td (Computer Science degree) Tj "
+        b"0 -20 Td (Licenses & Certifications) Tj "
+        b"0 -20 Td (AWS Certified Solutions Architect) Tj ET"
+    )
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+        ),
+        b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    document = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for number, value in enumerate(objects, 1):
+        offsets.append(len(document))
+        document.extend(f"{number} 0 obj\n".encode())
+        document.extend(value)
+        document.extend(b"\nendobj\n")
+    startxref = len(document)
+    document.extend(f"xref\n0 {len(objects) + 1}\n".encode())
+    document.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        document.extend(f"{offset:010d} 00000 n \n".encode())
+    document.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{startxref}\n%%EOF\n".encode()
+    )
+    return bytes(document)
+
+
 def upload_cv(csrf: str) -> tuple[int, dict[str, object]]:
     boundary = "----career-assistant-smoke-" + uuid.uuid4().hex
-    content = b"Skills\nPython, PostgreSQL\nExperience\nIgnored prose\n"
+    content = pdf_cv()
     body = (
         (
             f"--{boundary}\r\n"
-            'Content-Disposition: form-data; name="file"; filename="smoke-cv.txt"\r\n'
-            "Content-Type: text/plain\r\n\r\n"
+            'Content-Disposition: form-data; name="file"; filename="smoke-cv.pdf"\r\n'
+            "Content-Type: application/pdf\r\n\r\n"
         ).encode()
         + content
         + f"\r\n--{boundary}--\r\n".encode()
@@ -175,26 +212,90 @@ for _ in range(20):
     time.sleep(0.5)
 assert operation["state"] == "succeeded"
 _, proposals = request("/api/v1/knowledge/proposals")
-assert proposals and proposals[0]["state"] == "pending"
+assert len(proposals) >= 4 and all(item["state"] == "pending" for item in proposals)
+assert all(item["evidence"] and item["observation_state"] == "observed" for item in proposals)
 _, member_entities = request("/api/v1/knowledge/entities")
 assert member_entities["items"]
 member_entity_id = member_entities["items"][0]["id"]
+deferred_proposal = next(
+    item for item in proposals if item["assertion"]["predicate"] == "STUDIED_AT"
+)
+skill_proposal = next(item for item in proposals if item["assertion"]["predicate"] == "POSSESSES")
+role_proposal = next(item for item in proposals if item["assertion"]["predicate"] == "HELD_ROLE")
+certification_proposal = next(
+    item for item in proposals if item["assertion"]["predicate"] == "HOLDS"
+)
+_, deferred = request(
+    f"/api/v1/knowledge/proposals/{deferred_proposal['id']}/decision",
+    "POST",
+    {
+        "decision": "defer",
+        "defer_until": "2099-01-01T00:00:00Z",
+        "note": "Smoke defer",
+    },
+    member_session["csrf_token"],
+    {"If-Match": '"0"', "Idempotency-Key": "smoke-defer"},
+)
+assert deferred["state"] == "deferred"
+try:
+    request(
+        f"/api/v1/knowledge/proposals/{skill_proposal['id']}/decision",
+        "POST",
+        {"decision": "approve"},
+        member_session["csrf_token"],
+        {"If-Match": '"99"', "Idempotency-Key": "smoke-stale"},
+    )
+except urllib.error.HTTPError as error:
+    assert error.code == 412
+else:
+    raise AssertionError("stale proposal decision was accepted")
 _, approved = request(
-    f"/api/v1/knowledge/proposals/{proposals[0]['id']}/decision",
+    f"/api/v1/knowledge/proposals/{skill_proposal['id']}/decision",
     "POST",
     {"decision": "approve", "note": "Smoke approval"},
     member_session["csrf_token"],
-    {"If-Match": "0"},
+    {"If-Match": '"0"', "Idempotency-Key": "smoke-approve"},
 )
 assert approved["state"] == "approved"
+assert approved["current_graph_version"] == 1
+_, approved_role = request(
+    f"/api/v1/knowledge/proposals/{role_proposal['id']}/decision",
+    "POST",
+    {"decision": "approve", "note": "Smoke second approval"},
+    member_session["csrf_token"],
+    {"If-Match": '"1"', "Idempotency-Key": "smoke-approve-role"},
+)
+assert approved_role["state"] == "approved"
+assert approved_role["current_graph_version"] == 2
+_, approved_certification = request(
+    f"/api/v1/knowledge/proposals/{certification_proposal['id']}/decision",
+    "POST",
+    {"decision": "approve", "note": "Smoke certification approval"},
+    member_session["csrf_token"],
+    {"If-Match": '"2"', "Idempotency-Key": "smoke-approve-certification"},
+)
+assert approved_certification["state"] == "approved"
+assert approved_certification["assertion"]["predicate"] == "HOLDS"
+assert approved_certification["current_graph_version"] == 3
+_, member_entities = request("/api/v1/knowledge/entities")
+owner = next(item for item in member_entities["items"] if item["type"] == "Person")
+certification = next(
+    item
+    for item in member_entities["items"]
+    if item["type"] == "Certification"
+    and item["canonical_name"] == "AWS Certified Solutions Architect"
+)
+assert any(item["predicate"] == "HOLDS" for item in owner["assertions"])
+assert any(item["predicate"] == "HOLDS" for item in certification["assertions"])
+assert approved_certification["assertion"]["relation_id"]
 _, versions = request("/api/v1/knowledge/versions")
-assert versions[0]["version"] == 1
+assert versions[0]["version"] == 3
 request(
     "/api/v1/knowledge/rollback",
     "POST",
     {"target_version": 0, "confirm": True, "reason": "Smoke rollback"},
     member_session["csrf_token"],
-    {"If-Match": "1"},
+    {"If-Match": "3"},
 )
 assert request(f"/api/v1/jobs/{job_id}/feedback")[1] == []
 request("/api/v1/auth/logout", "POST", csrf=member_session["csrf_token"])

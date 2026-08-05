@@ -13,6 +13,7 @@ from career_assistant.settings import Settings
 
 MAX_ARTIFACT_BYTES = 10 * 1024 * 1024
 ALLOWED_MEDIA_TYPES = {"text/plain", "application/pdf"}
+ARTIFACT_PROCESSOR_VERSION = 3
 
 
 class ArtifactError(ValueError):
@@ -79,10 +80,11 @@ def extract_chunks(media_type: str, content: bytes) -> list[TextChunk]:
         ]
     try:
         reader = PdfReader(BytesIO(content), strict=True)
-        chunks = [
-            TextChunk(f"page:{number}", (page.extract_text() or "").strip())
-            for number, page in enumerate(reader.pages, 1)
-        ]
+        chunks = []
+        for page_number, page in enumerate(reader.pages, 1):
+            for line_number, line in enumerate((page.extract_text() or "").splitlines(), 1):
+                if line.strip():
+                    chunks.append(TextChunk(f"page:{page_number}:line:{line_number}", line.strip()))
     except (PdfReadError, ValueError, IndexError) as error:
         raise ArtifactError("ARTIFACT_PARSE_FAILED", "The PDF could not be read") from error
     if not any(chunk.text for chunk in chunks):

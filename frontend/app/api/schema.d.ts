@@ -109,6 +109,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/artifacts/{artifact_id}/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reprocess Artifact */
+        post: operations["reprocess_artifact_api_v1_artifacts__artifact_id__reprocess_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -680,6 +697,8 @@ export interface components {
             operation_url?: string | null;
             /** Processing State */
             processing_state: string;
+            /** Processing Version */
+            processing_version: number;
             /** Retention Until */
             retention_until: string | null;
             /** Size Bytes */
@@ -1133,6 +1152,8 @@ export interface components {
              * @enum {string}
              */
             decision: "approve" | "approve_with_edit" | "reject" | "defer";
+            /** Defer Until */
+            defer_until?: string | null;
             /** Note */
             note?: string | null;
             /** Value */
@@ -1145,13 +1166,27 @@ export interface components {
             assertion: components["schemas"]["AssertionResponse"];
             /** Base Graph Version */
             base_graph_version: number;
+            /** Current Graph Version */
+            current_graph_version: number;
+            /** Decided At */
+            decided_at: string | null;
+            /** Decided By */
+            decided_by: string | null;
             /** Decision Note */
             decision_note: string | null;
+            /** Defer Until */
+            defer_until: string | null;
+            /** Evidence */
+            evidence: components["schemas"]["EvidenceResponse"][];
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Observation Evidence Count */
+            observation_evidence_count: number | null;
+            /** Observation State */
+            observation_state: string | null;
             /** State */
             state: string;
         };
@@ -1742,6 +1777,42 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reprocess_artifact_api_v1_artifacts__artifact_id__reprocess_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                artifact_id: string;
+            };
+            cookie?: {
+                career_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2411,6 +2482,7 @@ export interface operations {
             query?: never;
             header: {
                 "If-Match": string;
+                "Idempotency-Key": string;
                 "X-Correlation-ID"?: string | null;
                 "X-CSRF-Token"?: string | null;
             };

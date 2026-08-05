@@ -4,6 +4,7 @@ const items = [
   { href: "/", label: "Overview", roles: ["member"] },
   { href: "/opportunities", label: "Opportunities", roles: ["member"] },
   { href: "/knowledge", label: "Knowledge", roles: ["member"] },
+  { href: "/reviews", label: "Reviews", roles: ["member"] },
   { href: "/knowledge/imports", label: "Imports", roles: ["member"] },
   { href: "/operations", label: "Operations", roles: ["admin"] },
   { href: "/admin/users", label: "Accounts", roles: ["admin"] },

@@ -3,6 +3,16 @@ import type { components } from "./schema";
 export type Session = components["schemas"]["SessionResponse"];
 let csrfToken: string | undefined;
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function loadSession(): Promise<Session> {
   const response = await fetch("/api/v1/session", {
     credentials: "same-origin",
@@ -34,9 +44,17 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}) {
   }
   if (!response.ok) {
     const problem = (await response.json().catch(() => null)) as {
-      detail?: string;
+      code?: string;
+      detail?: string | { detail?: string; code?: string };
     } | null;
-    throw new Error(problem?.detail ?? "Request failed");
+    const detail =
+      typeof problem?.detail === "string"
+        ? problem.detail
+        : problem?.detail?.detail;
+    const code =
+      problem?.code ??
+      (typeof problem?.detail === "object" ? problem.detail.code : undefined);
+    throw new ApiError(detail ?? "Request failed", response.status, code);
   }
   if (response.status === 204) return undefined as T;
   const value = (await response.json()) as T;

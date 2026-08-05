@@ -12,6 +12,8 @@ export default [
   route("knowledge/graph", "routes/knowledge-graph.tsx"),
   route("knowledge/imports", "routes/knowledge-imports.tsx"),
   route("knowledge/history", "routes/knowledge-history.tsx"),
+  route("reviews", "routes/reviews.tsx"),
+  route("reviews/:proposalId", "routes/review.tsx"),
   route("admin/users", "routes/admin-users.tsx"),
   route("admin/users/:userId", "routes/admin-user.tsx"),
   route("operations", "routes/operations.tsx"),

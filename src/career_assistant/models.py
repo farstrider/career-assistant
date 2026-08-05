@@ -89,6 +89,7 @@ class Artifact(Base):
     encrypted_content: Mapped[bytes] = mapped_column(LargeBinary)
     classification: Mapped[str] = mapped_column(String(32))
     processing_state: Mapped[str] = mapped_column(String(32), index=True)
+    processing_version: Mapped[int] = mapped_column(Integer, default=0)
     retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -218,6 +219,12 @@ class AssertionEvidence(Base):
 
 class KnowledgeProposal(Base):
     __tablename__ = "knowledge_proposal"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["profile_id", "observation_id"],
+            ["learning_observation.profile_id", "learning_observation.id"],
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     profile_id: Mapped[uuid.UUID] = mapped_column(
@@ -231,8 +238,38 @@ class KnowledgeProposal(Base):
     decided_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_note: Mapped[str | None] = mapped_column(String(2000))
+    defer_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+    decision_idempotency_key: Mapped[str | None] = mapped_column(String(128))
     replacement_assertion_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LearningObservation(Base):
+    __tablename__ = "learning_observation"
+    __table_args__ = (
+        UniqueConstraint("profile_id", "observation_key"),
+        UniqueConstraint("profile_id", "id", name="uq_learning_observation_profile_id_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), index=True
+    )
+    observation_key: Mapped[str] = mapped_column(String(128))
+    kind: Mapped[str] = mapped_column(String(64))
+    value: Mapped[dict[str, object]] = mapped_column(JSONB)
+    confidence: Mapped[float] = mapped_column(Float)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    evidence_count: Mapped[int] = mapped_column(Integer, default=1)
+    last_evidence_hash: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    suppressed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class GraphVersion(Base):

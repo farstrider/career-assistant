@@ -59,17 +59,32 @@ The CI Compose job additionally scans the built API and proxy images for high- a
 
 ## Knowledge graph and artifact imports
 
-Milestone 2 supports UTF-8 text and extractable-text PDF CV imports. Create a
-local Fernet key and set `CAREER_SECURITY_ARTIFACT_KEY_FILE` in `.env`; the key
-is required to encrypt artifacts and evidence before they are stored. Scanned
-or password-protected PDFs are rejected safely. Imported facts remain pending
-proposals until an explicit member decision. The import page polls processing
-status and displays a 0–100% progress bar, ending with “Finished!” when the
-operation succeeds.
+Milestone 2 supports UTF-8 text and extractable-text PDF CV imports. PDF text
+is normalized into stable page/line evidence locators. Explicit skills,
+experience, education, and certification sections become pending proposals;
+scanned or password-protected PDFs are rejected safely. Create a local Fernet
+key and set `CAREER_SECURITY_ARTIFACT_KEY_FILE` in `.env`; the key is required
+to encrypt artifacts and evidence before they are stored. An import that
+contains no supported sections completes with a visible “No reviewable facts
+were found” result rather than silently appearing successful.
 
 The knowledge profile, bounded search/traversal, read-only graph, imports, and
 graph history are available from the member navigation. Profile data is scoped
 to the authenticated session; source and normalized job data remains shared.
+The Reviews page lists pending proposals with encrypted evidence excerpts and
+supports explicit approve, edit-and-approve, reject, and date-based defer
+decisions. Decisions use the displayed graph version and preserve local edits
+when a concurrent change returns `412 GRAPH_VERSION_MISMATCH`.
+
+To reprocess imports created by an older artifact processor, run:
+
+```sh
+docker compose run --rm api career artifacts reprocess
+```
+
+Reprocessing preserves the existing proposal and decision history and creates
+new reviewable results for the updated processor. Review or repair any older
+incorrectly classified proposal after the new import completes.
 
 ## Full-stack smoke test
 

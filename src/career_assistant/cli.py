@@ -4,21 +4,24 @@ import argparse
 import asyncio
 import hashlib
 import json
+import uuid
 from datetime import datetime
 from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 from sqlalchemy import func, select
 
+from career_assistant.artifacts import ARTIFACT_PROCESSOR_VERSION
 from career_assistant.auth import (
     normalize_username,
     password_hash,
     revoke_user_sessions,
+    set_profile_context,
     temporary_password,
 )
 from career_assistant.connectors import ManualImportConnector
 from career_assistant.ingestion import execute_run, policy_allows
-from career_assistant.models import AppUser, ConnectorRun, Profile, Source
+from career_assistant.models import AppUser, Artifact, ConnectorRun, Operation, Profile, Source
 from career_assistant.services import Services
 from career_assistant.settings import load_settings
 
@@ -204,6 +207,62 @@ async def import_jobs(source_key: str, filename: Path) -> None:
         await services.close()
 
 
+async def reprocess_artifacts() -> None:
+    services = Services.create(load_settings())
+    queued: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = []
+    try:
+        async with services.sessions() as database:
+            profiles = (await database.scalars(select(Profile))).all()
+            for profile in profiles:
+                await set_profile_context(database, profile.id)
+                artifacts = (
+                    await database.scalars(
+                        select(Artifact).where(
+                            Artifact.profile_id == profile.id,
+                            (Artifact.processing_version < ARTIFACT_PROCESSOR_VERSION)
+                            | Artifact.processing_state.in_(
+                                ["received", "extracting", "failed", "quarantined"]
+                            ),
+                        )
+                    )
+                ).all()
+                for artifact in artifacts:
+                    key = f"artifact-reprocess-v{ARTIFACT_PROCESSOR_VERSION}:{artifact.id}"
+                    existing = await database.scalar(
+                        select(Operation).where(
+                            Operation.requested_by_user_id == profile.user_id,
+                            Operation.idempotency_key == key,
+                        )
+                    )
+                    if existing:
+                        continue
+                    operation = Operation(
+                        requested_by_user_id=profile.user_id,
+                        profile_id=profile.id,
+                        kind="artifact_import",
+                        state="queued",
+                        target_type="artifact",
+                        target_id=artifact.id,
+                        progress={
+                            "percent": 0,
+                            "reprocess": True,
+                            "processor_version": ARTIFACT_PROCESSOR_VERSION,
+                        },
+                        idempotency_key=key,
+                    )
+                    database.add(operation)
+                    await database.flush()
+                    queued.append((artifact.id, operation.id, profile.id))
+            await database.commit()
+        from career_assistant.tasks import process_artifact
+
+        for artifact_id, operation_id, profile_id in queued:
+            process_artifact.delay(str(artifact_id), str(operation_id), str(profile_id))
+        print(f"Queued {len(queued)} artifact reprocessing operation(s)")
+    finally:
+        await services.close()
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="career")
     groups = root.add_subparsers(dest="group", required=True)
@@ -221,6 +280,9 @@ def parser() -> argparse.ArgumentParser:
     import_file = source_commands.add_parser("import")
     import_file.add_argument("source_key")
     import_file.add_argument("file", type=Path)
+    artifacts = groups.add_parser("artifacts")
+    artifact_commands = artifacts.add_subparsers(dest="command", required=True)
+    artifact_commands.add_parser("reprocess")
     return root
 
 
@@ -232,5 +294,7 @@ def main() -> None:
         asyncio.run(reset_password(arguments.username))
     elif arguments.command == "apply-policy":
         asyncio.run(apply_source_policy(arguments.file))
+    elif arguments.group == "artifacts":
+        asyncio.run(reprocess_artifacts())
     else:
         asyncio.run(import_jobs(arguments.source_key, arguments.file))

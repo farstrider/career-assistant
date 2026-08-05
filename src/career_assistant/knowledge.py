@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ from career_assistant.models import (
     KGEntity,
     KGRelation,
     KnowledgeProposal,
+    LearningObservation,
     OutboxEvent,
     Profile,
 )
@@ -90,8 +92,24 @@ class GraphDelta:
     after: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class ArtifactFact:
+    predicate: str
+    entity_type: str
+    label: str
+    locator: str
+    excerpt: str
+
+
 def normalize_name(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).casefold()
+
+
+def artifact_observation_key(
+    subject_id: uuid.UUID, label: str, predicate: str = "POSSESSES"
+) -> str:
+    value = f"{subject_id}:{predicate}:{normalize_name(label)}"
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def validate_entity_type(value: str) -> str:
@@ -254,7 +272,7 @@ async def proposal_for_artifact(
     chunks: list[tuple[str, str]],
     encrypt_excerpt: Any,
 ) -> int:
-    """Create conservative skill proposals from explicit CV skill sections."""
+    """Create conservative proposals from explicit CV sections."""
     person = await database.scalar(
         select(KGEntity).where(
             KGEntity.profile_id == profile_id,
@@ -272,65 +290,117 @@ async def proposal_for_artifact(
         )
         database.add(person)
         await database.flush()
-    in_skills = False
-    candidates: list[tuple[str, str, str]] = []
-    for locator, text in chunks:
-        heading = text.strip().rstrip(":").casefold()
-        if heading in {"skills", "technical skills", "technologies", "tools"}:
-            in_skills = True
-            continue
-        if in_skills and heading in {
-            "experience",
-            "work experience",
-            "employment",
-            "education",
-            "projects",
-            "certifications",
-        }:
-            in_skills = False
-        if in_skills:
-            for item in re.split(r"[,;|•]|\s+-\s+", text):
-                item = item.strip(" -*\t")
-                if 1 < len(item) <= 80 and re.search(r"[A-Za-z\u3040-\u30ff\u4e00-\u9fff]", item):
-                    candidates.append((item, locator, text))
+    candidates = extract_artifact_facts(chunks)
     created = 0
-    for skill_name, locator, excerpt in candidates[:100]:
+    seen_keys: set[str] = set()
+    for fact in candidates[:100]:
+        predicate = fact.predicate
+        entity_type = fact.entity_type
+        label = fact.label
+        locator = fact.locator
+        excerpt = fact.excerpt
+        observation_key = artifact_observation_key(person.id, label, predicate)
+        if observation_key in seen_keys:
+            continue
+        seen_keys.add(observation_key)
         entity = await database.scalar(
             select(KGEntity).where(
                 KGEntity.profile_id == profile_id,
-                KGEntity.entity_type.in_(["Skill", "Technology"]),
-                KGEntity.normalized_name == normalize_name(skill_name),
+                KGEntity.entity_type == entity_type,
+                KGEntity.normalized_name == normalize_name(label),
             )
         )
         if entity is None:
             entity = KGEntity(
                 profile_id=profile_id,
-                entity_type="Skill",
-                canonical_name=skill_name,
-                normalized_name=normalize_name(skill_name),
+                entity_type=entity_type,
+                canonical_name=label,
+                normalized_name=normalize_name(label),
                 attributes={},
             )
             database.add(entity)
             await database.flush()
-        evidence = Evidence(
-            profile_id=profile_id,
-            kind="artifact",
-            source_uri=f"artifact://{artifact_id}",
-            title="Imported CV",
-            content_hash=normalize_name(excerpt).encode().hex()[:64].ljust(64, "0"),
-            encrypted_excerpt=encrypt_excerpt(excerpt.encode("utf-8")),
-            observed_at=_now(),
-            metadata_={"artifact_id": str(artifact_id)},
-            locator=locator,
-            artifact_id=artifact_id,
+        excerpt_hash = hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
+        evidence = await database.scalar(
+            select(Evidence).where(
+                Evidence.profile_id == profile_id,
+                Evidence.artifact_id == artifact_id,
+                Evidence.locator == locator,
+                Evidence.content_hash == excerpt_hash,
+            )
         )
-        database.add(evidence)
-        await database.flush()
+        if evidence is None:
+            evidence = Evidence(
+                profile_id=profile_id,
+                kind="artifact",
+                source_uri=f"artifact://{artifact_id}",
+                title="Imported CV",
+                content_hash=excerpt_hash,
+                encrypted_excerpt=encrypt_excerpt(excerpt.encode("utf-8")),
+                observed_at=_now(),
+                metadata_={"artifact_id": str(artifact_id)},
+                locator=locator,
+                artifact_id=artifact_id,
+            )
+            database.add(evidence)
+            await database.flush()
+        now = _now()
+        observation = await database.scalar(
+            select(LearningObservation).where(
+                LearningObservation.profile_id == profile_id,
+                LearningObservation.observation_key == observation_key,
+            )
+        )
+        material_new = (
+            observation is None or observation.last_evidence_hash != evidence.content_hash
+        )
+        if observation is None:
+            observation = LearningObservation(
+                profile_id=profile_id,
+                observation_key=observation_key,
+                kind=f"artifact_{predicate.casefold()}",
+                value={
+                    "label": label,
+                    "predicate": predicate,
+                    **({"skill": label} if predicate == "POSSESSES" else {}),
+                },
+                confidence=0.7,
+                first_seen=now,
+                last_seen=now,
+                evidence_count=1,
+                last_evidence_hash=evidence.content_hash,
+                state="observed",
+            )
+            database.add(observation)
+            await database.flush()
+        else:
+            observation.last_seen = now
+            observation.last_evidence_hash = evidence.content_hash
+            if material_new:
+                observation.evidence_count += 1
+                if observation.state == "suppressed":
+                    observation.state = "observed"
+        if observation.state == "confirmed" or (
+            observation.state == "suppressed" and not material_new
+        ):
+            continue
+        pending = await database.scalar(
+            select(KnowledgeProposal.id).where(
+                KnowledgeProposal.observation_id == observation.id,
+                KnowledgeProposal.state.in_(["pending", "deferred"]),
+            )
+        )
+        if pending is not None:
+            continue
         assertion = KGAssertion(
             profile_id=profile_id,
             subject_entity_id=person.id,
-            predicate="POSSESSES",
-            value={"entity_id": str(entity.id), "skill": skill_name},
+            predicate=predicate,
+            value={
+                "entity_id": str(entity.id),
+                "label": label,
+                **({"skill": label} if predicate == "POSSESSES" else {}),
+            },
             status="pending",
             confidence=0.7,
             confidence_method="artifact_section_heuristic_v1",
@@ -352,6 +422,7 @@ async def proposal_for_artifact(
             KnowledgeProposal(
                 profile_id=profile_id,
                 proposed_assertion_id=assertion.id,
+                observation_id=observation.id,
                 state="pending",
                 base_graph_version=await current_graph_version(database, profile_id),
             )
@@ -359,6 +430,82 @@ async def proposal_for_artifact(
         created += 1
     await database.flush()
     return created
+
+
+def extract_artifact_facts(chunks: list[tuple[str, str]]) -> list[ArtifactFact]:
+    section_types = {
+        "skills": ("POSSESSES", "Skill"),
+        "technical skills": ("POSSESSES", "Skill"),
+        "technologies": ("POSSESSES", "Technology"),
+        "tools": ("POSSESSES", "Technology"),
+        "experience": ("HELD_ROLE", "Role"),
+        "work experience": ("HELD_ROLE", "Role"),
+        "employment": ("HELD_ROLE", "Role"),
+        "education": ("STUDIED_AT", "Education"),
+        "certifications": ("HOLDS", "Certification"),
+        "certificates": ("HOLDS", "Certification"),
+        "certification": ("HOLDS", "Certification"),
+        "licenses and certifications": ("HOLDS", "Certification"),
+        "license and certifications": ("HOLDS", "Certification"),
+    }
+    section_boundaries = set(section_types) | {
+        "summary",
+        "profile",
+        "projects",
+        "publications",
+        "presentations",
+        "interests",
+        "languages",
+        "references",
+        "affiliations",
+        "memberships",
+        "professional memberships",
+    }
+    candidates: list[ArtifactFact] = []
+    active_section: tuple[str, str] | None = None
+    for locator, text in chunks:
+        line = text.strip()
+        normalized = normalize_name(line.rstrip(":")).replace("&", "and")
+        heading = next(
+            (
+                item
+                for item in sorted(section_boundaries, key=len, reverse=True)
+                if normalized == item
+            ),
+            None,
+        )
+        inline_text = ""
+        if heading is None:
+            for item in sorted(section_types, key=len, reverse=True):
+                prefix = f"{item}:"
+                if normalized.startswith(prefix):
+                    heading = item
+                    inline_text = line[len(prefix) :].strip()
+                    break
+        if heading is not None:
+            active_section = section_types.get(heading)
+            if active_section and inline_text:
+                candidates.extend(
+                    ArtifactFact(active_section[0], active_section[1], item, locator, line)
+                    for item in _artifact_items(inline_text, active_section[0])
+                )
+            continue
+        if active_section:
+            candidates.extend(
+                ArtifactFact(active_section[0], active_section[1], item, locator, line)
+                for item in _artifact_items(line, active_section[0])
+            )
+    return candidates
+
+
+def _artifact_items(text: str, predicate: str) -> list[str]:
+    parts = re.split(r"[,;|•]|\s+-\s+", text) if predicate == "POSSESSES" else [text]
+    return [
+        item.strip(" -*\t")
+        for item in parts
+        if 1 < len(item.strip(" -*\t")) <= 300
+        and re.search(r"[A-Za-z\u3040-\u30ff\u4e00-\u9fff]", item)
+    ]
 
 
 async def current_graph_version(database: AsyncSession, profile_id: uuid.UUID) -> int:

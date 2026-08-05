@@ -8,6 +8,7 @@ describe("role-aware navigation", () => {
       "Overview",
       "Opportunities",
       "Knowledge",
+      "Reviews",
       "Imports",
       "Password",
     ]);

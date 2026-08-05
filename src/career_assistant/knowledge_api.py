@@ -21,6 +21,7 @@ from career_assistant.knowledge import (
     current_graph_version,
     entity_snapshot,
     evidence_for_assertion,
+    lock_profile,
     normalize_name,
     relation_snapshot,
     restore_object,
@@ -29,6 +30,7 @@ from career_assistant.knowledge import (
 )
 from career_assistant.models import (
     AssertionEvidence,
+    AuditEvent,
     Evidence,
     GraphChange,
     GraphVersion,
@@ -36,6 +38,8 @@ from career_assistant.models import (
     KGEntity,
     KGRelation,
     KnowledgeProposal,
+    LearningObservation,
+    OutboxEvent,
 )
 
 router = APIRouter()
@@ -159,12 +163,27 @@ class ProposalResponse(BaseModel):
     state: str
     base_graph_version: int
     decision_note: str | None
+    current_graph_version: int
+    defer_until: datetime | None
+    decided_by: uuid.UUID | None
+    decided_at: datetime | None
+    evidence: list[EvidenceResponse]
+    observation_state: str | None
+    observation_evidence_count: int | None
 
 
 class ProposalDecision(BaseModel):
     decision: Literal["approve", "approve_with_edit", "reject", "defer"]
     value: dict[str, object] | None = None
     note: str | None = Field(default=None, max_length=2000)
+    defer_until: datetime | None = None
+
+    @field_validator("defer_until")
+    @classmethod
+    def defer_timezone_required(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.utcoffset() is None:
+            raise ValueError("defer_until must include a timezone")
+        return value
 
 
 class VersionResponse(BaseModel):
@@ -203,6 +222,8 @@ def _knowledge_problem(error: KnowledgeError) -> Exception:
     status_code = (
         status.HTTP_412_PRECONDITION_FAILED
         if error.code == "GRAPH_VERSION_MISMATCH"
+        else status.HTTP_409_CONFLICT
+        if error.code == "PROPOSAL_STATE_INVALID"
         else status.HTTP_422_UNPROCESSABLE_CONTENT
     )
     return problem(status_code, error.code, str(error))
@@ -225,16 +246,82 @@ async def _assertion_response(database: Database, item: KGAssertion) -> Assertio
     )
 
 
-async def _entity_response(database: Database, entity: KGEntity, version: int) -> EntityResponse:
-    assertions = (
-        await database.scalars(
-            select(KGAssertion).where(
-                KGAssertion.profile_id == entity.profile_id,
-                KGAssertion.subject_entity_id == entity.id,
-                KGAssertion.status == "confirmed",
+async def _assertions_for_entity(
+    database: Database, profile_id: uuid.UUID, entity_id: uuid.UUID
+) -> list[KGAssertion]:
+    relation_ids = select(KGRelation.id).where(
+        KGRelation.profile_id == profile_id,
+        KGRelation.retired_at.is_(None),
+        or_(KGRelation.from_entity_id == entity_id, KGRelation.to_entity_id == entity_id),
+    )
+    return list(
+        (
+            await database.scalars(
+                select(KGAssertion).where(
+                    KGAssertion.profile_id == profile_id,
+                    or_(
+                        KGAssertion.subject_entity_id == entity_id,
+                        KGAssertion.relation_id.in_(relation_ids),
+                    ),
+                )
+            )
+        ).all()
+    )
+
+
+async def _proposal_response(
+    request: Request,
+    database: Database,
+    proposal: KnowledgeProposal,
+    assertion: KGAssertion,
+    version: int,
+) -> ProposalResponse:
+    cipher = artifact_cipher(request.app.state.settings)
+    evidence = []
+    for item in await evidence_for_assertion(database, assertion.id, assertion.profile_id):
+        try:
+            excerpt = cipher.decrypt(item.encrypted_excerpt).decode("utf-8")
+        except Exception:
+            excerpt = None
+        evidence.append(
+            EvidenceResponse(
+                id=item.id,
+                kind=item.kind,
+                source_uri=item.source_uri,
+                title=item.title,
+                excerpt=excerpt,
+                observed_at=item.observed_at,
+                locator=item.locator,
+                artifact_id=item.artifact_id,
             )
         )
-    ).all()
+    observation = (
+        await database.get(LearningObservation, proposal.observation_id)
+        if proposal.observation_id
+        else None
+    )
+    return ProposalResponse(
+        id=proposal.id,
+        assertion=await _assertion_response(database, assertion),
+        state=proposal.state,
+        base_graph_version=proposal.base_graph_version,
+        decision_note=proposal.decision_note,
+        current_graph_version=version,
+        defer_until=proposal.defer_until,
+        decided_by=proposal.decided_by,
+        decided_at=proposal.decided_at,
+        evidence=evidence,
+        observation_state=observation.state if observation else None,
+        observation_evidence_count=observation.evidence_count if observation else None,
+    )
+
+
+async def _entity_response(database: Database, entity: KGEntity, version: int) -> EntityResponse:
+    assertions = [
+        item
+        for item in await _assertions_for_entity(database, entity.profile_id, entity.id)
+        if item.status == "confirmed"
+    ]
     return EntityResponse(
         id=entity.id,
         type=entity.entity_type,
@@ -395,14 +482,9 @@ async def get_entity_evidence(
     request: Request, entity_id: uuid.UUID, current: Current, database: Database
 ) -> list[EvidenceResponse]:
     entity = await _entity(database, current.profile.id, entity_id)
-    assertions = (
-        await database.scalars(
-            select(KGAssertion).where(
-                KGAssertion.profile_id == current.profile.id,
-                KGAssertion.subject_entity_id == entity.id,
-            )
-        )
-    ).all()
+    assertions = [
+        item for item in await _assertions_for_entity(database, current.profile.id, entity.id)
+    ]
     items: list[EvidenceResponse] = []
     cipher = artifact_cipher(request.app.state.settings)
     for assertion in assertions:
@@ -638,7 +720,9 @@ async def traverse(
 
 
 @router.get("/knowledge/proposals", response_model=list[ProposalResponse], tags=["knowledge"])
-async def list_proposals(current: Current, database: Database) -> list[ProposalResponse]:
+async def list_proposals(
+    request: Request, current: Current, database: Database
+) -> list[ProposalResponse]:
     proposals = (
         await database.scalars(
             select(KnowledgeProposal)
@@ -646,19 +730,12 @@ async def list_proposals(current: Current, database: Database) -> list[ProposalR
             .order_by(KnowledgeProposal.created_at.desc())
         )
     ).all()
+    version = await current_graph_version(database, current.profile.id)
     result = []
     for proposal in proposals:
         assertion = await database.get(KGAssertion, proposal.proposed_assertion_id)
         if assertion:
-            result.append(
-                ProposalResponse(
-                    id=proposal.id,
-                    assertion=await _assertion_response(database, assertion),
-                    state=proposal.state,
-                    base_graph_version=proposal.base_graph_version,
-                    decision_note=proposal.decision_note,
-                )
-            )
+            result.append(await _proposal_response(request, database, proposal, assertion, version))
     return result
 
 
@@ -666,7 +743,7 @@ async def list_proposals(current: Current, database: Database) -> list[ProposalR
     "/knowledge/proposals/{proposal_id}", response_model=ProposalResponse, tags=["knowledge"]
 )
 async def get_proposal(
-    proposal_id: uuid.UUID, current: Current, database: Database
+    request: Request, proposal_id: uuid.UUID, current: Current, database: Database
 ) -> ProposalResponse:
     proposal = await database.scalar(
         select(KnowledgeProposal).where(
@@ -678,12 +755,12 @@ async def get_proposal(
     assertion = await database.get(KGAssertion, proposal.proposed_assertion_id)
     if assertion is None:
         raise problem(status.HTTP_404_NOT_FOUND, "PROPOSAL_NOT_FOUND", "Proposal not found")
-    return ProposalResponse(
-        id=proposal.id,
-        assertion=await _assertion_response(database, assertion),
-        state=proposal.state,
-        base_graph_version=proposal.base_graph_version,
-        decision_note=proposal.decision_note,
+    return await _proposal_response(
+        request,
+        database,
+        proposal,
+        assertion,
+        await current_graph_version(database, current.profile.id),
     )
 
 
@@ -695,9 +772,11 @@ async def get_proposal(
 async def decide_proposal(
     proposal_id: uuid.UUID,
     values: ProposalDecision,
+    request: Request,
     current: Mutation,
     database: Database,
     if_match: Annotated[str, Header(alias="If-Match")],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=128)],
     correlation_id: Annotated[str | None, Header(alias="X-Correlation-ID")] = None,
 ) -> ProposalResponse:
     proposal = await database.scalar(
@@ -711,32 +790,184 @@ async def decide_proposal(
     if assertion is None:
         raise problem(status.HTTP_404_NOT_FOUND, "PROPOSAL_NOT_FOUND", "Proposal not found")
     expected = _if_match(if_match)
+    if proposal.decision_idempotency_key == idempotency_key and proposal.state not in {
+        "pending",
+        "deferred",
+    }:
+        response_assertion = (
+            await database.get(KGAssertion, proposal.replacement_assertion_id)
+            if proposal.replacement_assertion_id
+            else assertion
+        )
+        return await _proposal_response(
+            request,
+            database,
+            proposal,
+            response_assertion or assertion,
+            await current_graph_version(database, current.profile.id),
+        )
+    if proposal.state not in {"pending", "deferred"}:
+        raise _knowledge_problem(
+            KnowledgeError("PROPOSAL_STATE_INVALID", "Proposal has already been decided")
+        )
+    current_version = await lock_profile(database, current.profile.id)
+    if current_version != expected:
+        raise _knowledge_problem(
+            KnowledgeError("GRAPH_VERSION_MISMATCH", "Graph changed; reload before saving")
+        )
+    defer_until = values.defer_until
+    correlation = correlation_id or str(uuid.uuid4())
+    now = datetime.now(UTC)
     if values.decision == "defer":
+        if defer_until is None:
+            raise problem(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "DEFER_UNTIL_REQUIRED",
+                "defer_until is required when deferring a proposal",
+            )
         proposal.state = "deferred"
         proposal.decision_note = values.note
+        proposal.defer_until = defer_until
+        proposal.decided_by = current.user.id
+        proposal.decided_at = now
+        proposal.decision_idempotency_key = idempotency_key
+        database.add(
+            AuditEvent(
+                profile_id=current.profile.id,
+                actor_id=current.user.id,
+                scope="profile",
+                action="proposal_deferred",
+                target_type="knowledge_proposal",
+                target_id=proposal.id,
+                correlation_id=correlation,
+                metadata_={"defer_until": defer_until.isoformat()},
+                occurred_at=now,
+            )
+        )
+        database.add(
+            OutboxEvent(
+                topic="knowledge.proposal_decided",
+                aggregate_type="knowledge_proposal",
+                aggregate_id=proposal.id,
+                payload={"profile_id": str(current.profile.id), "decision": "defer"},
+                occurred_at=now,
+            )
+        )
         await database.commit()
         await set_profile_context(database, current.profile.id)
     elif values.decision == "reject":
         proposal.state = "rejected"
         proposal.decision_note = values.note
+        proposal.decided_by = current.user.id
+        proposal.decided_at = now
+        proposal.decision_idempotency_key = idempotency_key
+        proposal.defer_until = None
         assertion.status = "rejected"
+        if proposal.observation_id:
+            observation = await database.get(LearningObservation, proposal.observation_id)
+            if observation:
+                observation.state = "suppressed"
+                observation.suppressed_until = None
+        database.add(
+            AuditEvent(
+                profile_id=current.profile.id,
+                actor_id=current.user.id,
+                scope="profile",
+                action="proposal_rejected",
+                target_type="knowledge_proposal",
+                target_id=proposal.id,
+                correlation_id=correlation,
+                metadata_={},
+                occurred_at=now,
+            )
+        )
+        database.add(
+            OutboxEvent(
+                topic="knowledge.proposal_decided",
+                aggregate_type="knowledge_proposal",
+                aggregate_id=proposal.id,
+                payload={"profile_id": str(current.profile.id), "decision": "reject"},
+                occurred_at=now,
+            )
+        )
         await database.commit()
         await set_profile_context(database, current.profile.id)
     else:
+        if values.decision == "approve_with_edit" and values.value is None:
+            raise problem(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "PROPOSAL_VALUE_REQUIRED",
+                "value is required when approving with an edit",
+            )
+        approved_value = (
+            values.value
+            if values.decision == "approve_with_edit" and values.value is not None
+            else assertion.value
+        )
+        relation_delta = None
+        relation_id = assertion.relation_id
+        target_id = approved_value.get("entity_id")
+        if target_id is not None:
+            if not isinstance(target_id, str):
+                raise _knowledge_problem(
+                    KnowledgeError("RELATION_TARGET_INVALID", "Relation target is invalid")
+                )
+            try:
+                target_uuid = uuid.UUID(target_id)
+            except ValueError:
+                raise _knowledge_problem(
+                    KnowledgeError("RELATION_TARGET_INVALID", "Relation target is invalid")
+                ) from None
+            try:
+                validate_relation_type(assertion.predicate)
+            except KnowledgeError as error:
+                raise _knowledge_problem(error) from error
+            target = await database.scalar(
+                select(KGEntity).where(
+                    KGEntity.id == target_uuid,
+                    KGEntity.profile_id == current.profile.id,
+                    KGEntity.retired_at.is_(None),
+                )
+            )
+            if target is None:
+                raise _knowledge_problem(
+                    KnowledgeError("RELATION_TARGET_NOT_FOUND", "Relation target was not found")
+                )
+            relation = await database.scalar(
+                select(KGRelation).where(
+                    KGRelation.profile_id == current.profile.id,
+                    KGRelation.relation_type == assertion.predicate,
+                    KGRelation.from_entity_id == assertion.subject_entity_id,
+                    KGRelation.to_entity_id == target.id,
+                    KGRelation.retired_at.is_(None),
+                )
+            )
+            if relation is None:
+                relation = KGRelation(
+                    profile_id=current.profile.id,
+                    relation_type=assertion.predicate,
+                    from_entity_id=assertion.subject_entity_id,
+                    to_entity_id=target.id,
+                    attributes={},
+                )
+                database.add(relation)
+                await database.flush()
+                relation_delta = GraphDelta(
+                    "relation", relation.id, "create", None, relation_snapshot(relation)
+                )
+            relation_id = relation.id
         replacement = KGAssertion(
             profile_id=current.profile.id,
             subject_entity_id=assertion.subject_entity_id,
-            relation_id=assertion.relation_id,
+            relation_id=relation_id,
             predicate=assertion.predicate,
-            value=values.value
-            if values.decision == "approve_with_edit" and values.value is not None
-            else assertion.value,
+            value=approved_value,
             status="confirmed",
             confidence=assertion.confidence,
             confidence_method=assertion.confidence_method,
             valid_from=assertion.valid_from,
             valid_until=assertion.valid_until,
-            supersedes_id=assertion.supersedes_id,
+            supersedes_id=assertion.id,
             created_by=current.user.id,
         )
         database.add(replacement)
@@ -766,7 +997,36 @@ async def decide_proposal(
         proposal.decided_by = current.user.id
         proposal.decided_at = datetime.now(UTC)
         proposal.decision_note = values.note
+        proposal.defer_until = None
+        proposal.decision_idempotency_key = idempotency_key
         proposal.replacement_assertion_id = replacement.id
+        if proposal.observation_id:
+            observation = await database.get(LearningObservation, proposal.observation_id)
+            if observation:
+                observation.state = "confirmed"
+                observation.suppressed_until = None
+        database.add(
+            AuditEvent(
+                profile_id=current.profile.id,
+                actor_id=current.user.id,
+                scope="profile",
+                action=f"proposal_{values.decision}",
+                target_type="knowledge_proposal",
+                target_id=proposal.id,
+                correlation_id=correlation,
+                metadata_={"graph_version": expected + 1},
+                occurred_at=now,
+            )
+        )
+        database.add(
+            OutboxEvent(
+                topic="knowledge.proposal_decided",
+                aggregate_type="knowledge_proposal",
+                aggregate_id=proposal.id,
+                payload={"profile_id": str(current.profile.id), "decision": values.decision},
+                occurred_at=now,
+            )
+        )
         try:
             await commit_graph(
                 database,
@@ -775,8 +1035,9 @@ async def decide_proposal(
                 actor_type="member",
                 expected_version=expected,
                 reason="proposal_approved",
-                correlation_id=correlation_id or str(uuid.uuid4()),
+                correlation_id=correlation,
                 deltas=[
+                    *([relation_delta] if relation_delta else []),
                     GraphDelta(
                         "assertion",
                         assertion.id,
@@ -792,12 +1053,12 @@ async def decide_proposal(
         except KnowledgeError as error:
             raise _knowledge_problem(error) from error
         assertion = replacement
-    return ProposalResponse(
-        id=proposal.id,
-        assertion=await _assertion_response(database, assertion),
-        state=proposal.state,
-        base_graph_version=expected,
-        decision_note=proposal.decision_note,
+    return await _proposal_response(
+        request,
+        database,
+        proposal,
+        assertion,
+        await current_graph_version(database, current.profile.id),
     )
 
 

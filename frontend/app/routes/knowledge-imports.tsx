@@ -8,6 +8,7 @@ interface Artifact {
   id: string;
   filename: string;
   processing_state: string;
+  processing_version: number;
   size_bytes: number;
   operation_url: string | null;
 }
@@ -48,7 +49,11 @@ export default function KnowledgeImports() {
         if (cancelled) return;
         setProgress(operationProgress(operation));
         if (operation.state === "succeeded") {
-          setMessage("Finished!");
+          setMessage(
+            operation.progress.result === "no_proposals"
+              ? "No reviewable facts were found. Check that the CV has supported sections."
+              : "Finished!",
+          );
           setOperationPath(null);
           await refresh();
         } else if (operation.state === "failed") {
@@ -93,6 +98,23 @@ export default function KnowledgeImports() {
       setMessage(caught instanceof Error ? caught.message : "Import failed");
     }
   }
+  async function reprocess(item: Artifact) {
+    setProgress(0);
+    setMessage(`Reprocessing ${item.filename}…`);
+    try {
+      const artifact = await apiRequest<Artifact>(
+        `/artifacts/${item.id}/reprocess`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": crypto.randomUUID() },
+        },
+      );
+      setOperationPath(artifact.operation_url);
+      await refresh();
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "Reprocess failed");
+    }
+  }
   return (
     <>
       <Link to="/knowledge">← Knowledge profile</Link>
@@ -130,6 +152,9 @@ export default function KnowledgeImports() {
             {item.operation_url && (
               <Link to={item.operation_url}>View operation</Link>
             )}
+            <button type="button" onClick={() => void reprocess(item)}>
+              Reprocess
+            </button>
           </article>
         ))}
       </div>

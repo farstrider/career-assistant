@@ -28,6 +28,13 @@ python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().
 
 The key is mounted read-only into a one-shot initializer, copied into an ephemeral volume mounted only by Nginx, and is not available to FastAPI, workers, or browser code. Nginx remains unprivileged.
 
+After an application upgrade that changes CV extraction, reprocess existing
+artifacts with the current processor:
+
+```sh
+docker compose run --rm api career artifacts reprocess
+```
+
 ## Start and stop the system
 
 Build and start the configured stack:
@@ -135,7 +142,7 @@ Apply migrations independently:
 docker compose run --rm migrate alembic upgrade head
 ```
 
-The `0002_local_authentication` revision creates accounts, profiles, and sessions. `0003_jobs_and_sources` adds shared acquisition/job history and profile-scoped feedback. `0004_knowledge_graph` adds encrypted profile artifacts, evidence-backed graph data, graph history, proposals, and forced row-level security. Downgrading below `0004` removes Milestone 2 graph data; back up PostgreSQL and verify the target before running:
+The `0002_local_authentication` revision creates accounts, profiles, and sessions. `0003_jobs_and_sources` adds shared acquisition/job history and profile-scoped feedback. `0004_knowledge_graph` adds encrypted profile artifacts, evidence-backed graph data, graph history, proposals, and forced row-level security. `0005_profile_evolution` adds proposal deferrals, observations, suppression state, and decision metadata. `0006_artifact_processing_version` records which CV processor produced derived data. Downgrading below `0006` removes processor-version tracking; back up PostgreSQL and verify the target before running:
 
 ```sh
 docker compose run --rm migrate alembic downgrade 0002_local_authentication

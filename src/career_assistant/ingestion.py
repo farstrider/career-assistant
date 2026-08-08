@@ -112,7 +112,8 @@ async def execute_run(
                         raise RateLimitError("Source request budget is exhausted")
                 page = await active_connector.fetch(cursor)
                 for item in page.items:
-                    outcome = await ingest_item(database, source, run.id, item)
+                    result = await ingest_item(database, source, run.id, item)
+                    outcome = result.outcome
                     run.fetched_count += 1
                     if outcome == "new":
                         run.new_count += 1
@@ -127,6 +128,10 @@ async def execute_run(
                             "changed": run.changed_count,
                         }
                     await database.commit()
+                    if result.job_version_id is not None:
+                        from career_assistant.tasks import enrich_job
+
+                        enrich_job.delay(str(result.job_version_id))
                 cursor = page.next_cursor
                 if not page.has_more:
                     break

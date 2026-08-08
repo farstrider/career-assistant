@@ -14,6 +14,9 @@ Copy `.env.example` to the untracked `.env` and set:
 - `CAREER_APP_TIMEZONE` to the installation’s IANA timezone.
 - `CAREER_SECURITY_ARTIFACT_KEY_FILE` to a mode-0600 Fernet key file used to
   encrypt imported CVs and evidence excerpts.
+- Optional `CAREER_LLM_ENDPOINT`, `CAREER_LLM_MODEL`, and token-budget settings
+  enable job enrichment. Set `CAREER_LLM_API_KEY` only in the
+  worker environment; the API does not need provider credentials.
 
 Keep `.env`, TLS private keys, database credentials, temporary passwords, and session material untracked. Direct deployments may use `CAREER_DATABASE_URL_FILE` and `CAREER_REDIS_URL_FILE`. Unknown `CAREER_*` application settings fail startup.
 
@@ -130,9 +133,24 @@ docker compose run --rm -v "$PWD/imports:/imports:ro" api \
   career sources import manual-source /imports/jobs.json
 ```
 
-Each item requires `external_id`, `url`, `company_name`, `title`, and `description`; optional Milestone 1 fields include `location`, `remote_policy`, `employment_type`, `posting_date`, `skills`, `responsibilities`, and `benefits`. The file is limited to 1,000 items. Reusing the same file is idempotent, while changed normalized content appends a job version.
+Each item requires `external_id`, `url`, `company_name`, `title`, and `description`; optional Milestone 1 fields include `location`, `remote_policy`, `employment_type`, `posting_date`, `skills`, `responsibilities`, and `benefits`. The file is limited to 1,000 items. Reusing the same file is idempotent, while changed normalized content appends a job version, including when content later returns to an earlier normalized state.
 
 Source runs retain immutable captures and classified errors. A failed run never records its candidate cursor; retrying safely reprocesses already captured items. Raw bodies and secret configuration are not exposed by the browser API.
+
+### AI enrichment
+
+Job enrichment uses the configured OpenAI-compatible chat-completions endpoint.
+The application sends one shared normalized job version, labels its content as
+untrusted, and requires structured output citing allow-listed job field
+locators. Provider/model, prompt/schema hashes, input/output hashes, usage,
+latency, request ID, and validation state are retained in reasoning lineage.
+Provider failures do not fail the source run; the enrichment task can be
+retried with the same idempotency key.
+
+The worker refuses a request that would exceed either
+`CAREER_LLM_DAILY_TOKEN_BUDGET` or `CAREER_LLM_TASK_TOKEN_BUDGET`. Keep
+provider retention/training terms reviewed before use. Do not put provider
+keys in source configuration or expose them through the API.
 
 ## Migrations and recovery
 
@@ -142,7 +160,7 @@ Apply migrations independently:
 docker compose run --rm migrate alembic upgrade head
 ```
 
-The `0002_local_authentication` revision creates accounts, profiles, and sessions. `0003_jobs_and_sources` adds shared acquisition/job history and profile-scoped feedback. `0004_knowledge_graph` adds encrypted profile artifacts, evidence-backed graph data, graph history, proposals, and forced row-level security. `0005_profile_evolution` adds proposal deferrals, observations, suppression state, and decision metadata. `0006_artifact_processing_version` records which CV processor produced derived data. Downgrading below `0006` removes processor-version tracking; back up PostgreSQL and verify the target before running:
+The `0002_local_authentication` revision creates accounts, profiles, and sessions. `0003_jobs_and_sources` adds shared acquisition/job history and profile-scoped feedback. `0004_knowledge_graph` adds encrypted profile artifacts, evidence-backed graph data, graph history, proposals, and forced row-level security. `0005_profile_evolution` adds proposal deferrals, observations, suppression state, and decision metadata. `0006_artifact_processing_version` records which CV processor produced derived data. `0007_ai_enrichment` adds immutable prompt versions, shared reasoning lineage, and validated job enrichment. `0008_repeating_job_version_hashes` permits a normalized job state to recur in append-only history. Back up PostgreSQL and verify the target before running:
 
 ```sh
 docker compose run --rm migrate alembic downgrade 0002_local_authentication

@@ -820,6 +820,20 @@ export interface components {
             /** Username */
             username: string;
         };
+        /** EnrichmentResponse */
+        EnrichmentResponse: {
+            /** Data */
+            data?: {
+                [key: string]: unknown;
+            } | null;
+            /** Reasoning Run Id */
+            reasoning_run_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "completed" | "quarantined" | "failed" | "skipped";
+        };
         /** EntityCreate */
         EntityCreate: {
             /** Attributes */
@@ -985,6 +999,7 @@ export interface components {
             discovered_at: string;
             /** Employment Type */
             employment_type: string | null;
+            enrichment: components["schemas"]["EnrichmentResponse"];
             /**
              * Id
              * Format: uuid
@@ -1057,6 +1072,7 @@ export interface components {
         };
         /** JobVersionResponse */
         JobVersionResponse: {
+            enrichment: components["schemas"]["EnrichmentResponse"];
             /** Normalized */
             normalized: {
                 [key: string]: unknown;

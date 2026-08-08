@@ -83,6 +83,12 @@ class NormalizedJob:
     fingerprints: dict[str, str]
 
 
+@dataclass(frozen=True)
+class IngestResult:
+    outcome: Literal["new", "changed", "unchanged"]
+    job_version_id: uuid.UUID | None
+
+
 def normalize(source: Source, item: RawItem) -> NormalizedJob:
     fields = item.fields
     data: dict[str, object] = {
@@ -134,7 +140,7 @@ def normalize(source: Source, item: RawItem) -> NormalizedJob:
 
 async def ingest_item(
     database: AsyncSession, source: Source, run_id: uuid.UUID, item: RawItem
-) -> Literal["new", "changed", "unchanged"]:
+) -> IngestResult:
     normalized = normalize(source, item)
     raw_hash = hashlib.sha256(item.body).hexdigest()
     raw = await database.scalar(
@@ -179,6 +185,7 @@ async def ingest_item(
         job = await database.get(Job, fingerprint.job_id) if fingerprint else None
 
     outcome: Literal["new", "changed", "unchanged"] = "unchanged"
+    job_version_id: uuid.UUID | None = None
     if job is None:
         job = Job(
             canonical_url=str(normalized.data["url"]),
@@ -212,22 +219,26 @@ async def ingest_item(
         link.last_seen_at = item.fetched_at
         link.url = item.url
 
+    locked_job = await database.scalar(select(Job).where(Job.id == job.id).with_for_update())
+    assert locked_job is not None
+    job = locked_job
     current = await database.scalar(
         select(JobVersion).where(JobVersion.job_id == job.id).order_by(JobVersion.version.desc())
     )
     if current is None or current.normalized_hash != normalized.normalized_hash:
         version = 1 if current is None else current.version + 1
-        database.add(
-            JobVersion(
-                job_id=job.id,
-                version=version,
-                normalized_data=normalized.data,
-                field_provenance=normalized.provenance,
-                normalized_hash=normalized.normalized_hash,
-                raw_document_id=raw.id,
-                valid_from=item.fetched_at,
-            )
+        version_item = JobVersion(
+            job_id=job.id,
+            version=version,
+            normalized_data=normalized.data,
+            field_provenance=normalized.provenance,
+            normalized_hash=normalized.normalized_hash,
+            raw_document_id=raw.id,
+            valid_from=item.fetched_at,
         )
+        database.add(version_item)
+        await database.flush()
+        job_version_id = version_item.id
         job.canonical_url = str(normalized.data["url"])
         job.company_name = str(normalized.data["company_name"])
         job.title = str(normalized.data["title"])
@@ -250,7 +261,7 @@ async def ingest_item(
     for kind, value in normalized.fingerprints.items():
         if (kind, value) not in existing:
             database.add(JobFingerprint(job_id=job.id, kind=kind, value=value, strength="exact"))
-    return outcome
+    return IngestResult(outcome, job_version_id)
 
 
 async def current_cursor(database: AsyncSession, source_id: uuid.UUID) -> str | None:

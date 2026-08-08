@@ -18,7 +18,8 @@ from career_assistant.artifacts import (
 from career_assistant.auth import cleanup_sessions, set_profile_context
 from career_assistant.ingestion import execute_run
 from career_assistant.knowledge import KnowledgeError, proposal_for_artifact
-from career_assistant.models import Artifact, Operation, Profile
+from career_assistant.models import Artifact, JobVersion, Operation, Profile
+from career_assistant.reasoning import enrich_job_version
 from career_assistant.services import Services
 from career_assistant.settings import load_settings
 
@@ -75,6 +76,26 @@ def scan_source(source_id: str, run_id: str, operation_id: str) -> None:
                 uuid.UUID(run_id),
                 uuid.UUID(operation_id),
             )
+        finally:
+            await services.close()
+
+    asyncio.run(run())
+
+
+@celery.task(
+    name="career_assistant.enrich_job",
+    autoretry_for=(OperationalError,),
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 3},
+)  # type: ignore[untyped-decorator]
+def enrich_job(job_version_id: str) -> None:
+    async def run() -> None:
+        services = Services.create(settings)
+        try:
+            async with services.sessions() as database:
+                version = await database.get(JobVersion, uuid.UUID(job_version_id))
+                if version is not None:
+                    await enrich_job_version(database, settings, version)
         finally:
             await services.close()
 

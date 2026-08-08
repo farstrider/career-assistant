@@ -18,6 +18,8 @@ docker compose run --rm -v "$fixtures:/fixtures:ro" api \
   career sources import smoke-manual /fixtures/jobs-v1.json
 docker compose run --rm -v "$fixtures:/fixtures:ro" api \
   career sources import smoke-manual /fixtures/jobs-v2.json
+docker compose run --rm -v "$fixtures:/fixtures:ro" api \
+  career sources import smoke-manual /fixtures/jobs-v3.json
 if docker compose run --rm -v "$fixtures:/fixtures:ro" api \
   career sources import smoke-manual /fixtures/jobs-invalid.json; then
   echo "invalid manual import unexpectedly succeeded" >&2

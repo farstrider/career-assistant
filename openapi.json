@@ -451,6 +451,51 @@
         "title": "CreateUserRequest",
         "type": "object"
       },
+      "EnrichmentResponse": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "reasoning_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Run Id"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "quarantined",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "EnrichmentResponse",
+        "type": "object"
+      },
       "EntityCreate": {
         "properties": {
           "attributes": {
@@ -836,6 +881,9 @@
             ],
             "title": "Employment Type"
           },
+          "enrichment": {
+            "$ref": "#/components/schemas/EnrichmentResponse"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -915,7 +963,8 @@
           "canonical_url",
           "version",
           "normalized",
-          "provenance"
+          "provenance",
+          "enrichment"
         ],
         "title": "JobDetail",
         "type": "object"
@@ -1043,6 +1092,9 @@
       },
       "JobVersionResponse": {
         "properties": {
+          "enrichment": {
+            "$ref": "#/components/schemas/EnrichmentResponse"
+          },
           "normalized": {
             "additionalProperties": true,
             "title": "Normalized",
@@ -1084,7 +1136,8 @@
           "normalized_hash",
           "raw_document_id",
           "valid_from",
-          "recorded_at"
+          "recorded_at",
+          "enrichment"
         ],
         "title": "JobVersionResponse",
         "type": "object"

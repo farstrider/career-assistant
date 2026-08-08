@@ -4,6 +4,7 @@ from pydantic import SecretStr, ValidationError
 from career_assistant.settings import (
     AppSettings,
     DatabaseSettings,
+    LLMSettings,
     MailSettings,
     RedisSettings,
     Settings,
@@ -56,3 +57,16 @@ def test_mail_settings_require_a_readable_nonempty_app_password_file(tmp_path) -
     password_file.write_text("", encoding="utf-8")
     with pytest.raises(ValidationError, match="empty"):
         MailSettings(username="alerts@example.invalid", app_password_file=password_file)
+
+
+def test_llm_settings_are_optional_but_bound_to_a_model_and_budget() -> None:
+    assert LLMSettings().endpoint is None
+    with pytest.raises(ValidationError, match="model is required"):
+        LLMSettings(endpoint="https://provider.example.test/chat/completions")
+    with pytest.raises(ValidationError, match="task token budget"):
+        LLMSettings(
+            endpoint="https://provider.example.test/chat/completions",
+            model="small",
+            max_tokens=512,
+            task_token_budget=256,
+        )

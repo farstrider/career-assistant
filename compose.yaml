@@ -8,6 +8,12 @@ x-backend: &backend
     CAREER_DATABASE_URL: postgresql+psycopg://career:local-development-only@postgres/career # pragma: allowlist secret
     CAREER_REDIS_URL: redis://redis:6379/0
     CAREER_SECURITY_ARTIFACT_KEY_FILE: /run/secrets/artifact_key
+    CAREER_LLM_ENDPOINT: ${CAREER_LLM_ENDPOINT:-}
+    CAREER_LLM_MODEL: ${CAREER_LLM_MODEL:-}
+    CAREER_LLM_TIMEOUT_SECONDS: ${CAREER_LLM_TIMEOUT_SECONDS:-30}
+    CAREER_LLM_MAX_TOKENS: ${CAREER_LLM_MAX_TOKENS:-1200}
+    CAREER_LLM_DAILY_TOKEN_BUDGET: ${CAREER_LLM_DAILY_TOKEN_BUDGET:-100000}
+    CAREER_LLM_TASK_TOKEN_BUDGET: ${CAREER_LLM_TASK_TOKEN_BUDGET:-20000}
   depends_on:
     postgres:
       condition: service_healthy
@@ -74,6 +80,9 @@ services:
 
   worker:
     <<: *backend
+    environment:
+      <<: *backend-environment
+      CAREER_LLM_API_KEY: ${CAREER_LLM_API_KEY:-}
     command: ["celery", "-A", "career_assistant.tasks:celery", "worker", "--loglevel=INFO", "--concurrency=1"]
     depends_on:
       migrate:

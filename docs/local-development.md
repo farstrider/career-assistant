@@ -22,6 +22,16 @@ cd ..
 
 The default tests use no external provider, live source, or private career data. Frozen RSS/Atom, sanitized LinkedIn alert, and manual-import fixtures cover normalization, deduplication, schema drift, SSRF, rate limits, MIME safety, IMAP cursor safety, and job-version history. Gmail tests use a fake IMAP client; live mailbox access is always opt-in.
 
+Milestone 4 enrichment is disabled unless `CAREER_LLM_ENDPOINT` and
+`CAREER_LLM_MODEL` are configured. The default suite uses frozen provider
+fixtures and never sends job content to a live service. For the explicit,
+budgeted smoke check, configure an OpenAI-compatible chat-completions endpoint
+and run `make live-provider-smoke`.
+
+Each new or changed job version is enriched once. Malformed, uncited, injected,
+timed-out, or over-budget responses are retained only as classified
+reasoning-run failures; they do not become recommendations or knowledge.
+
 ## Build and generated contracts
 
 Build the application images using the deployment values described in [System administration](system-administration.md):

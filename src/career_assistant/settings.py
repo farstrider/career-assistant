@@ -112,6 +112,17 @@ def _secret(value: SecretStr | None, path: Path | None, label: str) -> SecretStr
     return value
 
 
+def _optional_secret(value: SecretStr | None, path: Path | None, label: str) -> SecretStr | None:
+    if value and path:
+        raise ValueError(f"set either {label} or its file, not both")
+    if path:
+        try:
+            value = SecretStr(path.read_text(encoding="utf-8").strip())
+        except OSError as error:
+            raise ValueError(f"cannot read {label} file") from error
+    return value if value and value.get_secret_value() else None
+
+
 class SecuritySettings(BaseModel):
     artifact_key: SecretStr | None = None
     artifact_key_file: Path | None = None
@@ -120,6 +131,38 @@ class SecuritySettings(BaseModel):
     def validate_key_sources(self) -> Self:
         if self.artifact_key and self.artifact_key_file:
             raise ValueError("set either artifact encryption key or its file, not both")
+        return self
+
+
+class LLMSettings(BaseModel):
+    endpoint: str | None = None
+    api_key: SecretStr | None = None
+    api_key_file: Path | None = None
+    provider: Literal["openai_compatible"] = "openai_compatible"
+    model: str | None = None
+    timeout_seconds: int = Field(default=30, ge=1, le=120)
+    max_tokens: int = Field(default=1200, ge=128, le=4096)
+    daily_token_budget: int = Field(default=100_000, ge=1)
+    task_token_budget: int = Field(default=20_000, ge=1)
+
+    @model_validator(mode="after")
+    def validate_configuration(self) -> Self:
+        if self.endpoint == "":
+            self.endpoint = None
+        if self.model == "":
+            self.model = None
+        self.api_key = _optional_secret(self.api_key, self.api_key_file, "LLM API key")
+        if self.endpoint is None:
+            if self.model or self.api_key:
+                raise ValueError("LLM endpoint is required when LLM settings are configured")
+            return self
+        parsed = urlsplit(self.endpoint)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("llm.endpoint must be an absolute HTTP(S) URL")
+        if not self.model:
+            raise ValueError("LLM model is required when an LLM endpoint is configured")
+        if self.max_tokens > self.task_token_budget:
+            raise ValueError("LLM max_tokens cannot exceed the task token budget")
         return self
 
 
@@ -138,6 +181,7 @@ class Settings(BaseSettings):
     redis: RedisSettings
     auth: AuthSettings = Field(default_factory=AuthSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
     mail: MailSettings | None = None
 
 
@@ -147,6 +191,7 @@ _SETTING_GROUPS: dict[str, type[BaseModel]] = {
     "redis": RedisSettings,
     "auth": AuthSettings,
     "security": SecuritySettings,
+    "llm": LLMSettings,
     "mail": MailSettings,
 }
 

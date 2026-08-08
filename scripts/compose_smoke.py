@@ -155,7 +155,7 @@ request(
 _, jobs = request("/api/v1/jobs")
 assert len(jobs["items"]) == 2
 job_id = next(item["id"] for item in jobs["items"] if item["title"].startswith("Platform"))
-assert len(request(f"/api/v1/jobs/{job_id}/versions")[1]) == 2
+assert len(request(f"/api/v1/jobs/{job_id}/versions")[1]) == 3
 source = request("/api/v1/sources")[1][0]
 assert source["enabled"] is False
 assert source["latest_run"]["status"] == "failed"

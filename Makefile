@@ -1,4 +1,4 @@
-.PHONY: bootstrap-admin check compose-smoke generate openapi test up
+.PHONY: bootstrap-admin check compose-smoke generate live-provider-smoke openapi test up
 
 export UV_CACHE_DIR ?= .uv-cache
 
@@ -30,3 +30,6 @@ check: generate
 
 compose-smoke: up
 	./scripts/compose_smoke.sh
+
+live-provider-smoke:
+	uv run python scripts/live_provider_smoke.py

@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Header, Query, Response, status
 from pydantic import BaseModel, Field, field_validator
@@ -15,13 +15,16 @@ from career_assistant.models import (
     ConnectorRun,
     FeedbackEvent,
     Job,
+    JobEnrichment,
     JobSourceLink,
     JobVersion,
     Operation,
+    ReasoningRun,
     Source,
 )
 
 router = APIRouter()
+EnrichmentStatus = Literal["pending", "running", "completed", "quarantined", "failed", "skipped"]
 
 
 class Page(BaseModel):
@@ -43,11 +46,18 @@ class JobSummary(BaseModel):
     sources: list[dict[str, str]]
 
 
+class EnrichmentResponse(BaseModel):
+    status: EnrichmentStatus
+    data: dict[str, object] | None = None
+    reasoning_run_id: uuid.UUID | None = None
+
+
 class JobDetail(JobSummary):
     canonical_url: str
     version: int
     normalized: dict[str, object]
     provenance: dict[str, object]
+    enrichment: EnrichmentResponse
 
 
 class JobPage(BaseModel):
@@ -64,6 +74,7 @@ class JobVersionResponse(BaseModel):
     raw_document_id: uuid.UUID
     valid_from: datetime
     recorded_at: datetime
+    enrichment: EnrichmentResponse
 
 
 class FeedbackRequest(BaseModel):
@@ -222,6 +233,27 @@ async def _job(database: Database, job_id: uuid.UUID) -> Job:
     return job
 
 
+async def _enrichment(database: Database, version: JobVersion) -> EnrichmentResponse:
+    enrichment = await database.scalar(
+        select(JobEnrichment).where(JobEnrichment.job_version_id == version.id)
+    )
+    if enrichment is not None:
+        return EnrichmentResponse(
+            status="completed",
+            data=enrichment.data,
+            reasoning_run_id=enrichment.reasoning_run_id,
+        )
+    run = await database.scalar(
+        select(ReasoningRun)
+        .where(ReasoningRun.job_version_id == version.id)
+        .order_by(ReasoningRun.created_at.desc())
+    )
+    return EnrichmentResponse(
+        status=cast(EnrichmentStatus, run.state if run is not None else "pending"),
+        reasoning_run_id=run.id if run is not None else None,
+    )
+
+
 @router.get("/jobs", response_model=JobPage, tags=["jobs"])
 async def list_jobs(
     _: Current,
@@ -282,6 +314,7 @@ async def get_job(job_id: uuid.UUID, _: Current, database: Database) -> JobDetai
         version=version.version,
         normalized=version.normalized_data,
         provenance=version.field_provenance,
+        enrichment=await _enrichment(database, version),
     )
 
 
@@ -306,6 +339,7 @@ async def list_job_versions(
             raw_document_id=item.raw_document_id,
             valid_from=item.valid_from,
             recorded_at=item.recorded_at,
+            enrichment=await _enrichment(database, item),
         )
         for item in versions
     ]

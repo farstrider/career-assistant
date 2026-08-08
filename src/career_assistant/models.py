@@ -439,10 +439,7 @@ class Job(Base):
 
 class JobVersion(Base):
     __tablename__ = "job_version"
-    __table_args__ = (
-        UniqueConstraint("job_id", "version"),
-        UniqueConstraint("job_id", "normalized_hash"),
-    )
+    __table_args__ = (UniqueConstraint("job_id", "version"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     job_id: Mapped[uuid.UUID] = mapped_column(
@@ -459,6 +456,69 @@ class JobVersion(Base):
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class PromptTemplate(Base):
+    __tablename__ = "prompt_template"
+    __table_args__ = (UniqueConstraint("key", "version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    key: Mapped[str] = mapped_column(String(128), index=True)
+    version: Mapped[str] = mapped_column(String(32))
+    task: Mapped[str] = mapped_column(String(64))
+    template: Mapped[str] = mapped_column(Text)
+    input_schema: Mapped[dict[str, object]] = mapped_column(JSONB)
+    output_schema: Mapped[dict[str, object]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(32))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReasoningRun(Base):
+    __tablename__ = "reasoning_run"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profile.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    job_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_version.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    prompt_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("prompt_template.id"), nullable=True
+    )
+    task: Mapped[str] = mapped_column(String(64), index=True)
+    provider: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(128))
+    schema_hash: Mapped[str] = mapped_column(String(64))
+    input_hash: Mapped[str] = mapped_column(String(64))
+    output_hash: Mapped[str | None] = mapped_column(String(64))
+    request_id: Mapped[str | None] = mapped_column(String(128))
+    usage: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    validation_errors: Mapped[list[object]] = mapped_column(JSONB, default=list)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    idempotency_key: Mapped[str] = mapped_column(String(128), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class JobEnrichment(Base):
+    __tablename__ = "job_enrichment"
+    __table_args__ = (UniqueConstraint("job_version_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    job_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_version.id", ondelete="CASCADE"), index=True
+    )
+    reasoning_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("reasoning_run.id", ondelete="RESTRICT")
+    )
+    data: Mapped[dict[str, object]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class JobSourceLink(Base):
